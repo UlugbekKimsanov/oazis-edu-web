@@ -1,0 +1,65 @@
+name: Deploy Frontends
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: landing
+            target: /var/www/oazisedu.uz
+          - app: admin
+            target: /var/www/admin.oazisedu.uz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
+
+      - name: Install deps
+        working-directory: apps/${{ matrix.app }}
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/${{ matrix.app }}
+        env:
+          VITE_API_BASE_URL: https://api.oazisedu.uz
+          VITE_API_ORIGIN: https://api.oazisedu.uz
+        run: npm run build
+
+      - name: Package dist
+        working-directory: apps/${{ matrix.app }}
+        run: tar -czf dist.tar.gz -C dist .
+
+      - name: Deploy over SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          TARGET: ${{ matrix.target }}
+          APP: ${{ matrix.app }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "Uploading $APP dist ..."
+          scp -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -i ~/.ssh/id_ed25519 "apps/$APP/dist.tar.gz" "$SSH_USER@$SSH_HOST:/tmp/$APP-dist.tar.gz"
+          echo "Extracting to $TARGET ..."
+          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -i ~/.ssh/id_ed25519 \
+              "$SSH_USER@$SSH_HOST" \
+              "mkdir -p $TARGET && rm -rf $TARGET/* && tar -xzf /tmp/$APP-dist.tar.gz -C $TARGET && rm -f /tmp/$APP-dist.tar.gz && echo '$APP deploy OK'"

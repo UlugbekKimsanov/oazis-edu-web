@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #2E9E6E;
+    --primary-dark: #1F7A55;
+    --primary-light: #E8F5EE;
+    --sidebar-width: 260px;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
