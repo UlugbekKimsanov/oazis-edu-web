@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 // Flag emoji'dan ISO mamlakat kodini chiqarish (🇬🇧 -> gb)
-export function flagCode(emoji?: string): string | null {
+function flagCode(emoji?: string): string | null {
   if (!emoji) return null;
   const ri = Array.from(emoji)
     .map((c) => c.codePointAt(0) || 0)

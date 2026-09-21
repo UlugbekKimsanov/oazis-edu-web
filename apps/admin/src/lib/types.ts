@@ -183,47 +183,19 @@ export interface DashboardStats {
   revenue: number;
 }
 
-// --- Landing (Oazis marketing sayti) ---
-export interface LandingLabelValue {
-  label: string;
-  value: string;
-}
-
-export interface LandingTitleDesc {
-  title: string;
-  description: string;
-}
-
-export interface LandingTestimonial {
-  name: string;
-  videoUrl: string;
-}
-
-export interface LandingCourse {
-  flag: string;
-  title: string;
-  students: number;
-  price: string;
-  rating: number;
-}
-
-export interface LandingContacts {
-  phone: string;
-  telegram: string;
-  instagram: string;
-  youtube: string;
-}
-
-export interface LandingContent {
-  stats: LandingLabelValue[];
-  features: LandingTitleDesc[];
-  courseInfo: LandingTitleDesc[];
-  goals: LandingTitleDesc[];
-  testimonials: LandingTestimonial[];
-  courses: LandingCourse[];
-  bonusText: string;
-  contacts: LandingContacts;
-}
+// --- Landing (Oazis marketing sayti) — ikkala frontend uchun bitta kanonik kontrakt. ---
+export type {
+  BonusBook,
+  Contacts as LandingContacts,
+  Course as LandingCourseItem,
+  CourseInfoItem,
+  Feature as LandingFeature,
+  Goal as LandingGoal,
+  LandingContent,
+  NavLink,
+  Stat as LandingStat,
+  Testimonial as LandingTestimonial,
+} from '../../../shared/landing-content';
 
 export interface LandingLead {
   id: number;

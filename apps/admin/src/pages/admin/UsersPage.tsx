@@ -47,7 +47,6 @@ export default function UsersPage() {
   };
 
   const fetchUsers = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/admin/users', courseId ? { params: { courseId } } : undefined);
       setUsers(res.data.data ?? res.data ?? []);
@@ -59,8 +58,20 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    fetchUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let active = true;
+    api.get('/admin/users', courseId ? { params: { courseId } } : undefined)
+      .then((res) => {
+        if (active) setUsers(res.data.data ?? res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setUsers([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [courseId]);
 
   useEffect(() => {
@@ -101,7 +112,7 @@ export default function UsersPage() {
       }
       setModalOpen(false);
       fetchUsers();
-    } catch (err) {
+    } catch {
       /* handled silently */
     }
   };

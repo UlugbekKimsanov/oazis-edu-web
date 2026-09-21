@@ -1,8 +1,21 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { LeadForm } from './LeadForm';
+import type { LandingContent } from '../../data/landing';
 
-export function LeadModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function LeadModal({
+  open,
+  onClose,
+  modal,
+  cta,
+  formCopy,
+}: {
+  open: boolean;
+  onClose: () => void;
+  modal: LandingContent['leadModal'];
+  cta: LandingContent['cta'];
+  formCopy: LandingContent['leadForm'];
+}) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -33,17 +46,22 @@ export function LeadModal({ open, onClose }: { open: boolean; onClose: () => voi
           type="button"
           onClick={onClose}
           className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-          aria-label="Yopish"
+          aria-label={modal.closeLabel}
         >
           <X className="h-5 w-5" />
         </button>
         <h2 id="lead-modal-title" className="pr-10 text-2xl font-bold text-gray-900">
-          Siz bilan bog'lanamiz
+          {modal.title}
         </h2>
         <p className="mb-6 mt-2 text-sm leading-6 text-gray-500">
-          Telefon raqamingizni qoldiring. Mutaxassisimiz sizga kurslar haqida batafsil ma'lumot beradi.
+          {modal.description}
         </p>
-        <LeadForm />
+        <LeadForm
+          nameLabel={cta.nameLabel}
+          phoneLabel={cta.phoneLabel}
+          submitLabel={cta.submitLabel}
+          copy={formCopy}
+        />
       </div>
     </div>
   );

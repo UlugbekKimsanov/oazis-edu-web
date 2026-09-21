@@ -1,22 +1,18 @@
 import { useState } from 'react';
 import { Menu, X } from 'lucide-react';
+import type { LandingContent } from '../../data/landing';
 import { Container } from '../ui/Container';
 import { Button } from '../ui/Button';
 
-const links = [
-  { href: '#kurslar', label: 'Kurslar' },
-  { href: '#biz-haqimizda', label: 'Biz haqimizda' },
-  { href: '#fikrlar', label: 'Fikrlar' },
-];
-
-export function Navbar() {
+export function Navbar({ navbar }: { navbar: LandingContent['navbar'] }) {
   const [open, setOpen] = useState(false);
+  const { logo, links, ctaLabel, menuLabel } = navbar;
 
   return (
     <header className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 backdrop-blur">
       <Container className="flex h-16 items-center justify-between">
         <a href="#top" className="text-xl font-extrabold tracking-tight text-primary">
-          OAZIS
+          {logo}
         </a>
 
         <nav className="hidden items-center gap-8 md:flex">
@@ -26,14 +22,14 @@ export function Navbar() {
             </a>
           ))}
           <a href="#royxatdan-otish">
-            <Button>Ro'yxatdan o'tish</Button>
+            <Button>{ctaLabel}</Button>
           </a>
         </nav>
 
         <button
           className="text-gray-700 md:hidden"
           onClick={() => setOpen((v) => !v)}
-          aria-label="Menyu"
+          aria-label={menuLabel}
         >
           {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
         </button>
@@ -53,7 +49,7 @@ export function Navbar() {
               </a>
             ))}
             <a href="#royxatdan-otish" onClick={() => setOpen(false)}>
-              <Button className="w-full">Ro'yxatdan o'tish</Button>
+              <Button className="w-full">{ctaLabel}</Button>
             </a>
           </Container>
         </div>

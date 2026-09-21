@@ -1,21 +1,29 @@
 import { Send, Instagram, Youtube, Phone } from 'lucide-react';
-import type { Contacts } from '../../data/landing';
+import type { Contacts, LandingContent } from '../../data/landing';
 import { Container } from '../ui/Container';
 
-export function Footer({ contacts }: { contacts: Contacts }) {
+export function Footer({
+  logo,
+  footer,
+  contacts,
+}: {
+  logo: string;
+  footer: LandingContent['footer'];
+  contacts: Contacts;
+}) {
   const socials = [
     { icon: Send, label: 'Telegram', href: contacts.telegram },
     { icon: Instagram, label: 'Instagram', href: contacts.instagram },
     { icon: Youtube, label: 'YouTube', href: contacts.youtube },
-  ];
+  ].filter((social) => social.href.trim());
 
   return (
     <footer className="bg-primary-dark text-white">
       <Container className="py-12">
         <div className="grid gap-8 sm:grid-cols-2">
           <div>
-            <div className="text-xl font-extrabold">OAZIS</div>
-            <p className="mt-3 text-sm font-semibold text-white/70">Bizning ijtimoiy sahifalar</p>
+            <div className="text-xl font-extrabold">{logo}</div>
+            <p className="mt-3 text-sm font-semibold text-white/70">{footer.socialTitle}</p>
             <div className="mt-3 flex gap-3">
               {socials.map((s) => (
                 <a
@@ -33,7 +41,7 @@ export function Footer({ contacts }: { contacts: Contacts }) {
           </div>
 
           <div className="sm:text-right">
-            <p className="text-sm font-semibold text-white/70">Yagona aloqa markazi</p>
+            <p className="text-sm font-semibold text-white/70">{footer.contactTitle}</p>
             <a
               href={`tel:${contacts.phone.replace(/\s/g, '')}`}
               className="mt-3 inline-flex items-center gap-2 text-lg font-bold sm:justify-end"
@@ -45,7 +53,7 @@ export function Footer({ contacts }: { contacts: Contacts }) {
         </div>
 
         <div className="mt-10 border-t border-white/10 pt-6 text-center text-sm text-white/60">
-          Oazis Company
+          {footer.company}
         </div>
       </Container>
     </footer>

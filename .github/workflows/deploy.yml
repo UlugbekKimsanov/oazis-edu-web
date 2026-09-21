@@ -32,6 +32,14 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: npm ci
 
+      - name: Lint
+        working-directory: apps/${{ matrix.app }}
+        run: npm run lint
+
+      - name: Test
+        working-directory: apps/${{ matrix.app }}
+        run: npm run test
+
       - name: Build
         working-directory: apps/${{ matrix.app }}
         env:

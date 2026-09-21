@@ -30,19 +30,29 @@ function App() {
 
   return (
     <div className="min-h-screen bg-white">
-      <Navbar />
+      <Navbar navbar={content.navbar} />
       <main>
-        <Hero stats={content.stats} onRequestInfo={() => setLeadModalOpen(true)} />
-        <Features features={content.features} />
-        <CourseInfo items={content.courseInfo} />
-        <Goals goals={content.goals} />
-        <Testimonials testimonials={content.testimonials} />
-        <Courses courses={content.courses} />
-        <Bonuses books={content.bonusBooks} />
-        <SignupForm />
+        <Hero
+          hero={content.hero}
+          stats={content.stats}
+          onRequestInfo={() => setLeadModalOpen(true)}
+        />
+        <Features title={content.featuresTitle} features={content.features} />
+        <CourseInfo title={content.courseInfoTitle} items={content.courseInfo} />
+        <Goals title={content.goalsTitle} goals={content.goals} />
+        <Testimonials title={content.testimonialsTitle} testimonials={content.testimonials} />
+        <Courses title={content.coursesTitle} courses={content.courses} cardText={content.courseCard} />
+        <Bonuses title={content.bonusTitle} text={content.bonusText} books={content.bonusBooks} />
+        <SignupForm cta={content.cta} formCopy={content.leadForm} />
       </main>
-      <Footer contacts={content.contacts} />
-      <LeadModal open={leadModalOpen} onClose={() => setLeadModalOpen(false)} />
+      <Footer logo={content.navbar.logo} footer={content.footer} contacts={content.contacts} />
+      <LeadModal
+        open={leadModalOpen}
+        onClose={() => setLeadModalOpen(false)}
+        modal={content.leadModal}
+        cta={content.cta}
+        formCopy={content.leadForm}
+      />
     </div>
   );
 }

@@ -51,7 +51,6 @@ export default function CoursesPage() {
     setSelectedLangs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const fetchAll = async () => {
-    setLoading(true);
     try {
       const [cRes, lRes, tRes] = await Promise.all([
         api.get('/admin/courses'),
@@ -68,7 +67,29 @@ export default function CoursesPage() {
     }
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api.get('/admin/courses'),
+      api.get('/admin/languages'),
+      api.get('/admin/users?role=TEACHER'),
+    ])
+      .then(([cRes, lRes, tRes]) => {
+        if (!active) return;
+        setCourses(cRes.data.data ?? cRes.data ?? []);
+        setLanguages(lRes.data.data ?? lRes.data ?? []);
+        setTeachers(tRes.data.data ?? tRes.data ?? []);
+      })
+      .catch(() => {
+        if (active) setCourses([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filtered = courses
     .filter((c) => selectedLangs.length === 0 || selectedLangs.includes(c.languageId))
@@ -137,7 +158,7 @@ export default function CoursesPage() {
       }
       setModalOpen(false);
       fetchAll();
-    } catch (err) {
+    } catch {
       /* handled silently */
     }
   };

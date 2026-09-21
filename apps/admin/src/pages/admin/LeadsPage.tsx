@@ -1,10 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock3, RefreshCw, Search, UserRoundX, Users } from 'lucide-react';
 import Button from '../../components/ui/Button';
-import api from '../../lib/api';
+import api, { API_ORIGIN } from '../../lib/api';
 import type { LandingLead, LeadStats, LeadStatus } from '../../lib/types';
 
-const LANDING_CFG = { baseURL: '/api' } as const;
+const LANDING_LEADS_URL = `${API_ORIGIN.replace(/\/+$/, '')}/api/admin/landing/leads`;
+const EMPTY_STATS: LeadStats = { total: 0, newRequests: 0, purchased: 0, rejected: 0 };
+
+function unwrapApiData(value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value) && 'data' in value) {
+    return (value as { data?: unknown }).data;
+  }
+  return value;
+}
+
+async function requestLeadData(signal?: AbortSignal): Promise<{
+  leads: LandingLead[];
+  stats: LeadStats;
+}> {
+  const [leadsResponse, statsResponse] = await Promise.all([
+    api.get(LANDING_LEADS_URL, { signal }),
+    api.get(`${LANDING_LEADS_URL}/stats`, { signal }),
+  ]);
+
+  const leadsPayload = unwrapApiData(leadsResponse.data);
+  const statsPayload = unwrapApiData(statsResponse.data);
+  return {
+    leads: Array.isArray(leadsPayload) ? (leadsPayload as LandingLead[]) : [],
+    stats:
+      statsPayload !== null && typeof statsPayload === 'object'
+        ? (statsPayload as LeadStats)
+        : { ...EMPTY_STATS },
+  };
+}
 
 const statusLabel: Record<LeadStatus, string> = {
   NEW: 'Yangi request',
@@ -20,7 +48,7 @@ const statusClass: Record<LeadStatus, string> = {
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<LandingLead[]>([]);
-  const [stats, setStats] = useState<LeadStats>({ total: 0, newRequests: 0, purchased: 0, rejected: 0 });
+  const [stats, setStats] = useState<LeadStats>(() => ({ ...EMPTY_STATS }));
   const [filter, setFilter] = useState<'ALL' | LeadStatus>('ALL');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -33,12 +61,9 @@ export default function LeadsPage() {
     setLoading(true);
     setError('');
     try {
-      const [leadsResponse, statsResponse] = await Promise.all([
-        api.get('/admin/landing/leads', LANDING_CFG),
-        api.get('/admin/landing/leads/stats', LANDING_CFG),
-      ]);
-      setLeads((leadsResponse.data?.data ?? leadsResponse.data ?? []) as LandingLead[]);
-      setStats((statsResponse.data?.data ?? statsResponse.data) as LeadStats);
+      const data = await requestLeadData();
+      setLeads(data.leads);
+      setStats(data.stats);
     } catch {
       setError("Ma'lumotlarni yuklab bo'lmadi.");
     } finally {
@@ -47,7 +72,22 @@ export default function LeadsPage() {
   }
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    void requestLeadData(controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setLeads(data.leads);
+        setStats(data.stats);
+        setError('');
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError("Ma'lumotlarni yuklab bo'lmadi.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
   }, []);
 
   const filtered = useMemo(() => {
@@ -66,9 +106,8 @@ export default function LeadsPage() {
     setError('');
     try {
       const response = await api.patch(
-        `/admin/landing/leads/${lead.id}`,
+        `${LANDING_LEADS_URL}/${lead.id}`,
         { status, rejectionReason },
-        LANDING_CFG,
       );
       const updated = (response.data?.data ?? response.data) as LandingLead;
       setLeads((items) => items.map((item) => (item.id === updated.id ? updated : item)));

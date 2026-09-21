@@ -1,8 +1,16 @@
-import type { Stat } from '../../data/landing';
+import type { LandingContent, Stat } from '../../data/landing';
 import { Container } from '../ui/Container';
 import { Button } from '../ui/Button';
 
-export function Hero({ stats, onRequestInfo }: { stats: Stat[]; onRequestInfo: () => void }) {
+export function Hero({
+  hero,
+  stats,
+  onRequestInfo,
+}: {
+  hero: LandingContent['hero'];
+  stats: Stat[];
+  onRequestInfo: () => void;
+}) {
   return (
     <section
       id="top"
@@ -11,16 +19,17 @@ export function Hero({ stats, onRequestInfo }: { stats: Stat[]; onRequestInfo: (
       <Container className="py-20 sm:py-28">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-extrabold leading-tight sm:text-4xl md:text-5xl">
-            BILIMGA BIR MARTA TO'LAYMIZ, BILIMSIZLIKKA ESA BIR UMR!
+            {hero.title}
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-base text-white/85 sm:text-lg">
-            Oazis Chet tillarini atiga 4 oy ichida interaktiv va online usulda tez va oson o'rganing
-            va maqsadingizga erishing!
+            {hero.subtitle}
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button type="button" variant="white" onClick={onRequestInfo}>Ma'lumot olish</Button>
+            <Button type="button" variant="white" onClick={onRequestInfo}>
+              {hero.primaryBtn}
+            </Button>
             <a href="#royxatdan-otish">
-              <Button variant="outlineWhite">Kirish</Button>
+              <Button variant="outlineWhite">{hero.secondaryBtn}</Button>
             </a>
           </div>
         </div>

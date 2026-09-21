@@ -10,7 +10,6 @@ export default function BreakMusicPage() {
 
 
   const fetchGroups = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/admin/break-groups');
       setGroups(res.data.data ?? res.data ?? []);
@@ -18,7 +17,22 @@ export default function BreakMusicPage() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchGroups(); }, []);
+  useEffect(() => {
+    let active = true;
+    api.get('/admin/break-groups')
+      .then((res) => {
+        if (active) setGroups(res.data.data ?? res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setGroups([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const uploadBg = async (groupId: number, file: File) => {
     setBusy(`bg-${groupId}`);

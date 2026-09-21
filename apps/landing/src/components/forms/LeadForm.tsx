@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { submitLead } from '../../lib/api';
+import type { LandingContent } from '../../data/landing';
 import { Button } from '../ui/Button';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
@@ -12,7 +13,19 @@ function formatUzPhone(value: string) {
   return `+998${parts.length ? ` ${parts.join(' ')}` : ' '}`;
 }
 
-export function LeadForm({ onSuccess }: { onSuccess?: () => void }) {
+export function LeadForm({
+  onSuccess,
+  nameLabel,
+  phoneLabel,
+  submitLabel,
+  copy,
+}: {
+  onSuccess?: () => void;
+  nameLabel: string;
+  phoneLabel: string;
+  submitLabel: string;
+  copy: LandingContent['leadForm'];
+}) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('+998 ');
   const [status, setStatus] = useState<Status>('idle');
@@ -22,7 +35,7 @@ export function LeadForm({ onSuccess }: { onSuccess?: () => void }) {
     event.preventDefault();
     if (!/^\+998 \d{2} \d{3} \d{2} \d{2}$/.test(phone)) {
       setStatus('error');
-      setMessage("Telefon raqamini to'liq kiriting.");
+      setMessage(copy.invalidPhoneMessage);
       return;
     }
 
@@ -31,13 +44,13 @@ export function LeadForm({ onSuccess }: { onSuccess?: () => void }) {
     try {
       await submitLead({ name: name.trim() || undefined, phone });
       setStatus('success');
-      setMessage("Arizangiz qabul qilindi! Tez orada siz bilan bog'lanamiz.");
+      setMessage(copy.successMessage);
       setName('');
       setPhone('+998 ');
       onSuccess?.();
     } catch {
       setStatus('error');
-      setMessage("Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring.");
+      setMessage(copy.errorMessage);
     }
   }
 
@@ -47,35 +60,35 @@ export function LeadForm({ onSuccess }: { onSuccess?: () => void }) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <label className="space-y-1.5">
-        <span className="text-sm font-semibold text-gray-700">Telefon raqami</span>
+        <span className="text-sm font-semibold text-gray-700">{phoneLabel}</span>
         <input
           autoFocus
           required
           className={inputClass}
           inputMode="tel"
           autoComplete="tel"
-          aria-label="Telefon raqami"
+          aria-label={phoneLabel}
           value={phone}
           onChange={(event) => setPhone(formatUzPhone(event.target.value))}
-          placeholder="+998 XX XXX XX XX"
+          placeholder={copy.phonePlaceholder}
         />
       </label>
       <label className="space-y-1.5">
         <span className="text-sm font-semibold text-gray-700">
-          Ism <span className="font-normal text-gray-400">(ixtiyoriy)</span>
+          {nameLabel} <span className="font-normal text-gray-400">({copy.optionalLabel})</span>
         </span>
         <input
           className={inputClass}
           autoComplete="name"
-          aria-label="Ism"
+          aria-label={nameLabel}
           value={name}
           maxLength={255}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Ismingiz"
+          placeholder={copy.namePlaceholder}
         />
       </label>
       <Button type="submit" disabled={status === 'loading'}>
-        {status === 'loading' ? 'Yuborilmoqda...' : "Ma'lumot olish"}
+        {status === 'loading' ? copy.loadingLabel : submitLabel}
       </Button>
       {message && (
         <p role="status" className={`text-sm ${status === 'success' ? 'text-primary' : 'text-red-600'}`}>

@@ -24,31 +24,32 @@ export default function LanguagesPage() {
   const [pendingUrl, setPendingUrl] = useState<string | null>(null); // tanlangan (hali saqlanmagan) rasm
   const [bgBusy, setBgBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-
-  const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const [lRes, cRes] = await Promise.all([
-        api.get('/admin/languages'),
-        api.get('/admin/courses'),
-      ]);
-      const list: Language[] = lRes.data.data ?? lRes.data ?? [];
-      // Yoqilgan tillar birinchi, keyin id bo'yicha
-      list.sort((a, b) => {
-        if (!!a.enabled !== !!b.enabled) return a.enabled ? -1 : 1;
-        return a.id - b.id;
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api.get('/admin/languages'),
+      api.get('/admin/courses'),
+    ])
+      .then(([lRes, cRes]) => {
+        if (!active) return;
+        const list: Language[] = lRes.data.data ?? lRes.data ?? [];
+        list.sort((a, b) => {
+          if (!!a.enabled !== !!b.enabled) return a.enabled ? -1 : 1;
+          return a.id - b.id;
+        });
+        setLanguages(list);
+        setCourses(cRes.data.data ?? cRes.data ?? []);
+      })
+      .catch(() => {
+        if (active) setLanguages([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-      setLanguages(list);
-      setCourses(cRes.data.data ?? cRes.data ?? []);
-    } catch {
-      setLanguages([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchAll(); }, []);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toggleStatus = async (lang: Language) => {
     const next = !lang.enabled;

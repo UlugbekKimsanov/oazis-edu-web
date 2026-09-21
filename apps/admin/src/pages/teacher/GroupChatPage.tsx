@@ -10,7 +10,7 @@ export default function GroupChatPage() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [search, setSearch] = useState('');
   const [showAnnounce, setShowAnnounce] = useState(false);
   const [note0, setNote0] = useState('');
@@ -32,13 +32,13 @@ export default function GroupChatPage() {
 
   useEffect(() => {
     if (!selectedCourse || !token) return;
-
-    setMessages([]);
+    let active = true;
 
     const wsUrl = `${WS_ORIGIN}/ws/course-chat?token=${token}&courseId=${selectedCourse.id}`;
     const socket = new WebSocket(wsUrl);
 
     socket.onmessage = (event) => {
+      if (!active) return;
       try {
         const parsed = JSON.parse(event.data);
         if (parsed.type === 'history') {
@@ -60,8 +60,13 @@ export default function GroupChatPage() {
       } catch { /* malformed message */ }
     };
 
-    setWs(socket);
-    return () => { socket.close(); setWs(null); };
+    wsRef.current = socket;
+    return () => {
+      active = false;
+      socket.onmessage = null;
+      socket.close();
+      if (wsRef.current === socket) wsRef.current = null;
+    };
   }, [selectedCourse, token]);
 
   useEffect(() => {
@@ -80,13 +85,15 @@ export default function GroupChatPage() {
   }, [messages]);
 
   const sendMessage = () => {
-    if (!input.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ text: input.trim() }));
+    const socket = wsRef.current;
+    if (!input.trim() || !socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ text: input.trim() }));
     setInput('');
   };
 
   const announceConference = () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
     let scheduledAt: string | undefined;
     let whenLabel: string;
@@ -106,7 +113,7 @@ export default function GroupChatPage() {
       : `📹 Video konferensiya ${whenLabel} da boshlanadi`;
     const note = note0.trim() ? `${base} — ${note0.trim()}` : base;
 
-    ws.send(JSON.stringify({ action: 'conference_start', note, scheduledAt }));
+    socket.send(JSON.stringify({ action: 'conference_start', note, scheduledAt }));
     setShowAnnounce(false);
     setNote0('');
     setMode('now');
@@ -116,8 +123,9 @@ export default function GroupChatPage() {
   };
 
   const endConference = () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ action: 'conference_end' }));
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ action: 'conference_end' }));
   };
 
   const joinConference = (url?: string) => {
@@ -159,7 +167,10 @@ export default function GroupChatPage() {
               courses.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase())).map((course) => (
                 <button
                   key={course.id}
-                  onClick={() => setSelectedCourse(course)}
+                  onClick={() => {
+                    if (selectedCourse?.id !== course.id) setMessages([]);
+                    setSelectedCourse(course);
+                  }}
                   className={`w-full text-left p-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
                     selectedCourse?.id === course.id ? 'bg-[var(--primary-light)]' : ''
                   }`}

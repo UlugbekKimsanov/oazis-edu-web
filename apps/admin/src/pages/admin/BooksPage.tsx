@@ -32,7 +32,6 @@ export default function BooksPage() {
 
 
   const fetchBooks = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/admin/books');
       setBooks(res.data.data ?? res.data ?? []);
@@ -41,8 +40,25 @@ export default function BooksPage() {
   };
 
   useEffect(() => {
-    fetchBooks();
-    api.get('/admin/languages').then((r) => setLanguages(r.data.data ?? r.data ?? [])).catch(() => {});
+    let active = true;
+    api.get('/admin/books')
+      .then((res) => {
+        if (active) setBooks(res.data.data ?? res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setBooks([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    api.get('/admin/languages')
+      .then((res) => {
+        if (active) setLanguages(res.data.data ?? res.data ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, []);
 
   const filtered = books.filter((b) => `${b.title} ${b.author}`.toLowerCase().includes(search.toLowerCase()));

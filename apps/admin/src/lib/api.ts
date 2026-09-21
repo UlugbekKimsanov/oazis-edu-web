@@ -3,14 +3,14 @@ import axios from 'axios';
 // Barcha so'rovlar to'g'ridan-to'g'ri backend domeniga boradi (Vite proxy'siz).
 // Lokal backend bilan ishlash uchun .env.local da VITE_API_ORIGIN=http://localhost:8080 qo'ying.
 export const API_ORIGIN: string =
-  import.meta.env.VITE_API_ORIGIN ?? 'https://api.oazisedu.uz';
+  (import.meta.env.VITE_API_ORIGIN ?? 'https://api.oazisedu.uz').replace(/\/$/, '');
 
 // WebSocket uchun mos origin (https -> wss, http -> ws)
 export const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
 
 // DB'dagi fayl yo'li -> to'liq URL
 export const fileUrl = (p?: string) =>
-  p ? (p.startsWith('http') ? p : `${API_ORIGIN}/files/${p}`) : '';
+  p ? (/^https?:\/\//i.test(p) ? p : `${API_ORIGIN}/files/${p.replace(/^\//, '')}`) : '';
 
 const api = axios.create({
   baseURL: `${API_ORIGIN}/api/v1`,

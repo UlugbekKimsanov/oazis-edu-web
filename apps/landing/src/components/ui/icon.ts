@@ -10,10 +10,34 @@ import {
   MessagesSquare,
   Brain,
   Timer,
+  BookOpen,
+  Star,
+  Users,
+  Globe,
+  Headphones,
+  Zap,
+  TrendingUp,
+  CheckCircle2,
+  Activity,
+  Library,
+  MessageSquare,
+  PlayCircle,
+  Dumbbell,
+  Music,
+  Bell,
+  CreditCard,
+  Settings,
+  ClipboardList,
+  FileQuestion,
+  UserCheck,
+  Camera,
+  Send,
   type LucideIcon,
 } from 'lucide-react';
+import { createElement } from 'react';
+import type { LandingIconName } from '../../data/landing';
 
-export const iconMap: Record<string, LucideIcon> = {
+export const iconMap: Record<LandingIconName, LucideIcon> = {
   GraduationCap,
   ClipboardCheck,
   MessageCircleQuestion,
@@ -25,8 +49,34 @@ export const iconMap: Record<string, LucideIcon> = {
   MessagesSquare,
   Brain,
   Timer,
+  BookOpen,
+  Star,
+  Users,
+  Globe,
+  Headphones,
+  Zap,
+  TrendingUp,
+  CheckCircle2,
+  Activity,
+  Library,
+  MessageSquare,
+  PlayCircle,
+  Dumbbell,
+  Music,
+  Bell,
+  CreditCard,
+  Settings,
+  ClipboardList,
+  FileQuestion,
+  UserCheck,
+  Camera,
+  Send,
 };
 
 export function getIcon(name: string): LucideIcon {
-  return iconMap[name] ?? Sparkles;
+  return iconMap[name as LandingIconName] ?? Sparkles;
+}
+
+export function IconGlyph({ name, className }: { name: string; className?: string }) {
+  return createElement(getIcon(name), { className });
 }

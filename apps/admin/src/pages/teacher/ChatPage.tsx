@@ -19,7 +19,7 @@ export default function ChatPage() {
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [search, setSearch] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -29,13 +29,13 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!selectedRoom || !token) return;
-
-    setMessages([]);
+    let active = true;
 
     const wsUrl = `${WS_ORIGIN}/ws/chat?token=${token}&courseId=${selectedRoom.courseId}&studentId=${selectedRoom.studentId}`;
     const socket = new WebSocket(wsUrl);
 
     socket.onmessage = (event) => {
+      if (!active) return;
       try {
         const parsed = JSON.parse(event.data);
         if (parsed.type === 'history') {
@@ -48,14 +48,23 @@ export default function ChatPage() {
     };
 
     socket.onerror = () => {
+      if (!active) return;
       // Fallback: load history via REST if WebSocket fails
       api.get(`/teacher/chat/history?courseId=${selectedRoom.courseId}&studentId=${selectedRoom.studentId}`)
-        .then((r) => setMessages(r.data.data ?? r.data ?? []))
+        .then((r) => {
+          if (active) setMessages(r.data.data ?? r.data ?? []);
+        })
         .catch(() => {});
     };
 
-    setWs(socket);
-    return () => { socket.close(); setWs(null); };
+    wsRef.current = socket;
+    return () => {
+      active = false;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.close();
+      if (wsRef.current === socket) wsRef.current = null;
+    };
   }, [selectedRoom, token]);
 
   useEffect(() => {
@@ -63,8 +72,9 @@ export default function ChatPage() {
   }, [messages]);
 
   const sendMessage = () => {
-    if (!input.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ text: input.trim() }));
+    const socket = wsRef.current;
+    if (!input.trim() || !socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ text: input.trim() }));
     setInput('');
   };
 
@@ -94,7 +104,11 @@ export default function ChatPage() {
               rooms.filter((r) => !search || r.studentName.toLowerCase().includes(search.toLowerCase()) || r.courseName.toLowerCase().includes(search.toLowerCase())).map((room) => (
                 <button
                   key={`${room.courseId}-${room.studentId}`}
-                  onClick={() => setSelectedRoom(room)}
+                  onClick={() => {
+                    const changed = selectedRoom?.courseId !== room.courseId || selectedRoom?.studentId !== room.studentId;
+                    if (changed) setMessages([]);
+                    setSelectedRoom(room);
+                  }}
                   className={`w-full text-left p-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
                     selectedRoom?.studentId === room.studentId && selectedRoom?.courseId === room.courseId
                       ? 'bg-[var(--primary-light)]'

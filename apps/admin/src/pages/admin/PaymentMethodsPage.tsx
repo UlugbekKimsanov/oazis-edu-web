@@ -8,19 +8,22 @@ export default function PaymentMethodsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
 
-  const fetchMethods = async () => {
-    setLoading(true);
-    try {
-      const res = await api.get('/admin/payment-methods');
-      setMethods(res.data.data ?? res.data ?? []);
-    } catch {
-      setMethods([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchMethods(); }, []);
+  useEffect(() => {
+    let active = true;
+    api.get('/admin/payment-methods')
+      .then((res) => {
+        if (active) setMethods(res.data.data ?? res.data ?? []);
+      })
+      .catch(() => {
+        if (active) setMethods([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toggle = async (m: PaymentMethod) => {
     const next = !m.enabled;

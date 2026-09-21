@@ -65,6 +65,22 @@ export default function LessonsPage() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const [searchParams] = useSearchParams();
+  const requestedCourseId = Number(searchParams.get('courseId')) || 0;
+
+  const fetchLessons = async (): Promise<Lesson[]> => {
+    if (!selectedCourse) return [];
+    try {
+      const res = await api.get(`/admin/courses/${selectedCourse}/lessons`);
+      const list: Lesson[] = res.data.data ?? res.data ?? [];
+      setLessons(list);
+      return list;
+    } catch {
+      setLessons([]);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Kebab menyuni tashqariga bosganda yopish
   useEffect(() => {
@@ -74,30 +90,56 @@ export default function LessonsPage() {
   }, []);
 
   useEffect(() => {
-    api.get('/admin/languages').then((r) => setLanguages(r.data.data ?? r.data ?? [])).catch(() => {});
-    api.get('/admin/courses').then((r) => {
-      const data: Course[] = r.data.data ?? r.data ?? [];
-      setCourses(data);
-      const qCourse = Number(searchParams.get('courseId')) || 0;
-      if (qCourse && data.some((c) => c.id === qCourse)) setSelectedCourse(qCourse);
-      else if (data.length > 0) setSelectedCourse(data[0].id);
-    }).catch(() => {});
-  }, []);
+    let active = true;
+    api.get('/admin/languages')
+      .then((res) => {
+        if (active) setLanguages(res.data.data ?? res.data ?? []);
+      })
+      .catch(() => {});
+    api.get('/admin/courses')
+      .then((res) => {
+        if (!active) return;
+        const data: Course[] = res.data.data ?? res.data ?? [];
+        setCourses(data);
+        if (requestedCourseId && data.some((course) => course.id === requestedCourseId)) {
+          setSelectedCourse(requestedCourseId);
+        } else if (data.length > 0) {
+          setSelectedCourse(data[0].id);
+        } else {
+          setSelectedCourse(0);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setCourses([]);
+        setSelectedCourse(0);
+        setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [requestedCourseId]);
 
   useEffect(() => {
-    if (selectedCourse) fetchLessons();
+    if (!selectedCourse) return;
+    let active = true;
+    api.get(`/admin/courses/${selectedCourse}/lessons`)
+      .then((res) => {
+        if (!active) return;
+        const list: Lesson[] = res.data.data ?? res.data ?? [];
+        setLessons(list);
+      })
+      .catch(() => {
+        if (active) setLessons([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [selectedCourse]);
-
-  const fetchLessons = async (): Promise<Lesson[]> => {
-    setLoading(true);
-    try {
-      const res = await api.get(`/admin/courses/${selectedCourse}/lessons`);
-      const list: Lesson[] = res.data.data ?? res.data ?? [];
-      setLessons(list);
-      return list;
-    } catch { setLessons([]); return []; }
-    finally { setLoading(false); }
-  };
 
   const openCreate = () => {
     setEditItem(null);
@@ -456,7 +498,10 @@ export default function LessonsPage() {
         <div className="flex items-center gap-3">
           <select
             value={selectedCourse}
-            onChange={(e) => setSelectedCourse(Number(e.target.value))}
+            onChange={(e) => {
+              setLoading(true);
+              setSelectedCourse(Number(e.target.value));
+            }}
             className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
           >
             {courseGroups.map((g) => (
