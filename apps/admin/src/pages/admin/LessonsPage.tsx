@@ -396,6 +396,21 @@ export default function LessonsPage() {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
+  // Tanlangan video fayldan davomiylikni avtomatik aniqlab formaga yozadi
+  const detectVideoDuration = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        setForm((f) => ({ ...f, durationSec: Math.round(video.duration) }));
+      }
+    };
+    video.onerror = () => URL.revokeObjectURL(url);
+    video.src = url;
+  };
+
   return (
     <div>
       {detailLesson ? (
@@ -589,7 +604,7 @@ export default function LessonsPage() {
               <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm text-[var(--primary)] cursor-pointer hover:bg-gray-50">
                 <Upload size={15} /> Video tanlash
                 <input type="file" accept="video/*" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) setPendingVideo(f); }} />
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) { setPendingVideo(f); detectVideoDuration(f); } }} />
               </label>
               <span className="text-xs text-gray-500 truncate flex-1">
                 {pendingVideo ? pendingVideo.name : (form.videoUrl ? 'Video yuklangan ✓' : 'Tanlanmagan')}
