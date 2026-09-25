@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, RefreshCw, Search, UserRoundX, Users } from 'lucide-react';
+import { CheckCircle2, Clock3, RefreshCw, Search, Trash2, UserRoundX, Users } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import api, { API_ORIGIN } from '../../lib/api';
 import type { LandingLead, LeadStats, LeadStatus } from '../../lib/types';
@@ -55,6 +55,7 @@ export default function LeadsPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [reason, setReason] = useState('');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   async function load() {
@@ -125,6 +126,27 @@ export default function LeadsPage() {
       setReason('');
     } catch {
       setError("Holatni saqlab bo'lmadi.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function deleteLead(lead: LandingLead) {
+    setSavingId(lead.id);
+    setError('');
+    try {
+      await api.delete(`${LANDING_LEADS_URL}/${lead.id}`);
+      setLeads((items) => items.filter((item) => item.id !== lead.id));
+      setStats((current) => {
+        const next = { ...current, total: Math.max(0, current.total - 1) };
+        if (lead.status === 'NEW') next.newRequests = Math.max(0, next.newRequests - 1);
+        if (lead.status === 'PURCHASED') next.purchased = Math.max(0, next.purchased - 1);
+        if (lead.status === 'REJECTED') next.rejected = Math.max(0, next.rejected - 1);
+        return next;
+      });
+      setDeletingId(null);
+    } catch {
+      setError("Zayavkani o'chirib bo'lmadi.");
     } finally {
       setSavingId(null);
     }
@@ -212,6 +234,7 @@ export default function LeadsPage() {
                 <th className="px-4 py-3">Request sanasi</th>
                 <th className="px-4 py-3">Holat</th>
                 <th className="px-4 py-3">Rad etish sababi</th>
+                <th className="px-4 py-3 text-right">Amallar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -248,6 +271,35 @@ export default function LeadsPage() {
                         </div>
                       </div>
                     ) : lead.rejectionReason ? lead.rejectionReason : '—'}
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    {deletingId === lead.id ? (
+                      <div className="inline-flex items-center gap-2">
+                        <span className="text-xs text-gray-500">O'chirilsinmi?</span>
+                        <button
+                          disabled={savingId === lead.id}
+                          onClick={() => deleteLead(lead)}
+                          className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                        >
+                          Ha
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600"
+                        >
+                          Yo'q
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        title="Zayavkani o'chirish"
+                        disabled={savingId === lead.id}
+                        onClick={() => setDeletingId(lead.id)}
+                        className="rounded-lg p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
