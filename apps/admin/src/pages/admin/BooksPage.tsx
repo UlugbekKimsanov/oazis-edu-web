@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, Image as ImageIcon, X } from 'lucide-react';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
@@ -13,6 +13,17 @@ const BOOK_EMOJIS = [
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]';
 
+// Kitobning galereya rasmlari — backend JSON array string qaytaradi
+function parseGallery(book?: Book | null): string[] {
+  if (!book?.images) return [];
+  try {
+    const arr = JSON.parse(book.images);
+    return Array.isArray(arr) ? arr.filter((p): p is string => typeof p === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function BooksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [languages, setLanguages] = useState<Language[]>([]);
@@ -24,6 +35,9 @@ export default function BooksPage() {
   // Yaratishda tanlangan (hali yuklanmagan) muqova rasmi
   const [pendingCover, setPendingCover] = useState<File | null>(null);
   const [pendingCoverUrl, setPendingCoverUrl] = useState<string | null>(null);
+  // Yaratishda tanlangan galereya rasmlari (saqlashda yuklanadi)
+  const [pendingImages, setPendingImages] = useState<{ file: File; url: string }[]>([]);
+  const [galleryUploading, setGalleryUploading] = useState(false);
   const [form, setForm] = useState({
     title: '', author: '', category: 'digital' as 'digital' | 'print',
     description: '', price: 0, isFree: false, emoji: '📚', pages: '', language: '',
@@ -69,9 +83,15 @@ export default function BooksPage() {
     setPendingCoverUrl(null);
   };
 
+  const clearPendingImages = () => {
+    pendingImages.forEach((p) => URL.revokeObjectURL(p.url));
+    setPendingImages([]);
+  };
+
   const openCreate = () => {
     setEditItem(null);
     clearPendingCover();
+    clearPendingImages();
     setForm({ title: '', author: '', category: 'digital', description: '', price: 0, isFree: false, emoji: '📚', pages: '', language: languages[0]?.name || '', deliveryType: 'FREE', deliveryPrice: 0 });
     setModalOpen(true);
   };
@@ -79,6 +99,7 @@ export default function BooksPage() {
   const openEdit = (item: Book) => {
     setEditItem(item);
     clearPendingCover();
+    clearPendingImages();
     setForm({
       title: item.title, author: item.author, category: item.category,
       description: item.description || '', price: item.price, isFree: item.isFree,
@@ -109,8 +130,17 @@ export default function BooksPage() {
           fd.append('file', pendingCover);
           await api.post(`/admin/books/${created.id}/upload-cover`, fd).catch(() => {});
         }
+        // Yaratishda tanlangan galereya rasmlari — ketma-ket yuklanadi
+        if (created?.id) {
+          for (const p of pendingImages) {
+            const fd = new FormData();
+            fd.append('file', p.file);
+            await api.post(`/admin/books/${created.id}/upload-image`, fd).catch(() => {});
+          }
+        }
       }
       clearPendingCover();
+      clearPendingImages();
       setModalOpen(false);
       fetchBooks();
     } catch { /* handled silently */ }
@@ -137,6 +167,38 @@ export default function BooksPage() {
     if (pendingCoverUrl) URL.revokeObjectURL(pendingCoverUrl);
     setPendingCover(file);
     setPendingCoverUrl(URL.createObjectURL(file));
+  };
+
+  // Tahrirlashda galereyaga rasm qo'shish — darhol yuklanadi
+  const uploadGalleryImage = async (file: File) => {
+    if (!editItem) return;
+    setGalleryUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post(`/admin/books/${editItem.id}/upload-image`, fd);
+      const updated: Book = res.data.data ?? res.data;
+      setEditItem(updated);
+      fetchBooks();
+    } catch { /* ignore */ } finally {
+      setGalleryUploading(false);
+    }
+  };
+
+  // Galereyadan rasmni o'chirish
+  const removeGalleryImage = async (path: string) => {
+    if (!editItem) return;
+    setGalleryUploading(true);
+    try {
+      const res = await api.delete(
+        `/admin/books/${editItem.id}/images?path=${encodeURIComponent(path)}`,
+      );
+      const updated: Book = res.data.data ?? res.data;
+      setEditItem(updated);
+      fetchBooks();
+    } catch { /* ignore */ } finally {
+      setGalleryUploading(false);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -306,6 +368,65 @@ export default function BooksPage() {
             </div>
             <p className="text-xs text-gray-400 mt-1">
               {editItem ? "Yuklansa, foydalanuvchi kitob tafsilotida shu rasmni ko'radi." : "Saqlanganda rasm ham yuklanadi."}
+            </p>
+          </div>
+
+          {/* Galereya — bir nechta qo'shimcha rasm (mobil ilovada zoom bilan ko'rinadi) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Qo'shimcha rasmlar (galereya)</label>
+            <div className="flex flex-wrap gap-2">
+              {editItem
+                ? parseGallery(editItem).map((p) => (
+                    <div key={p} className="relative w-16 h-20 rounded-lg overflow-hidden bg-gray-100 group">
+                      <img src={fileUrl(p)} alt="" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        title="Rasmni o'chirish"
+                        disabled={galleryUploading}
+                        onClick={() => removeGalleryImage(p)}
+                        className="absolute top-0.5 right-0.5 rounded-full bg-black/60 p-0.5 text-white opacity-0 group-hover:opacity-100 transition disabled:opacity-30"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))
+                : pendingImages.map((p, i) => (
+                    <div key={p.url} className="relative w-16 h-20 rounded-lg overflow-hidden bg-gray-100 group">
+                      <img src={p.url} alt="" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        title="Olib tashlash"
+                        onClick={() => {
+                          URL.revokeObjectURL(p.url);
+                          setPendingImages((items) => items.filter((_, idx) => idx !== i));
+                        }}
+                        className="absolute top-0.5 right-0.5 rounded-full bg-black/60 p-0.5 text-white opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+              <label className="w-16 h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:border-[var(--primary)] hover:text-[var(--primary)] transition">
+                <Plus size={18} />
+                <span className="text-[10px] mt-0.5">{galleryUploading ? '...' : "Qo'shish"}</span>
+                <input type="file" accept="image/*" multiple className="hidden" disabled={galleryUploading}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (!files.length) return;
+                    if (editItem) {
+                      files.forEach((f) => uploadGalleryImage(f));
+                    } else {
+                      setPendingImages((items) => [
+                        ...items,
+                        ...files.map((f) => ({ file: f, url: URL.createObjectURL(f) })),
+                      ]);
+                    }
+                    e.target.value = '';
+                  }} />
+              </label>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Mobil ilovada kitob sahifasida galereya sifatida ko'rinadi; rasm bosilganda kattalashtirib ko'rish mumkin.
             </p>
           </div>
 

@@ -142,6 +142,7 @@ export interface Book {
   language?: string;
   coverImage?: string;
   coverUrl?: string;
+  images?: string | null; // galereya rasmlari — JSON array string (nisbiy yo'llar)
   deliveryType?: 'FREE' | 'NEGOTIABLE' | 'PAID'; // bosma kitoblar uchun
   deliveryPrice?: number;                        // PAID bo'lsa — yetkazib berish narxi
 }
