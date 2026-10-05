@@ -15,7 +15,8 @@ export const fileUrl = (p?: string) =>
 const api = axios.create({
   baseURL: `${API_ORIGIN}/api/v1`,
   // So'rov abadiy "pending"da qotmasligi uchun timeout (backend restart bo'lsa ham).
-  // Lokal yuklashlar (video/audio) tez, 60s yetarli.
+  // Katta fayl yuklashlar (masalan 2 GB video) buni so'rov darajasida
+  // `timeout: 0` bilan o'chiradi — qarang LessonsPage.handleSave.
   timeout: 60000,
   // Content-Type qo'lda berilmaydi: axios oddiy obyektlarga application/json,
   // FormData (rasm yuklash) uchun esa multipart/form-data (boundary bilan) qo'yadi.

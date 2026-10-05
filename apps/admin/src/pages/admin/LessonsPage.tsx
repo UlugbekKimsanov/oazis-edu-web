@@ -11,6 +11,11 @@ import type { Course, Language, Lesson, Vocabulary, Question, Exercise, Audioboo
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]';
 
+// Video uchun maksimal hajm — 2 GB. Backend (FileStorageService.MAX_VIDEO_BYTES)
+// va nginx (client_max_body_size) bilan bir xil bo'lishi shart.
+const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
+const fmtBytes = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
+
 
 export default function LessonsPage() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -22,11 +27,16 @@ export default function LessonsPage() {
   const [menuId, setMenuId] = useState<number | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<Lesson | null>(null);
-  const [form, setForm] = useState({ name: '', description: '', orderIndex: 1, durationSec: 300, videoUrl: '' });
+  // orderIndex formada yo'q: yangi darsda ro'yxat oxiriga qo'shiladi, keyin
+  // faqat sudrab tartiblash (drag-and-drop) orqali o'zgaradi.
+  const [form, setForm] = useState({ name: '', description: '', durationSec: 0, videoUrl: '' });
   // Video + cover fayl yuklash
   const [pendingVideo, setPendingVideo] = useState<File | null>(null);
   const [pendingCover, setPendingCover] = useState<File | null>(null);
   const [videoUploading, setVideoUploading] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [durationDetecting, setDurationDetecting] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
 
   const [vocabModal, setVocabModal] = useState(false);
   const [questionsModal, setQuestionsModal] = useState(false);
@@ -141,24 +151,43 @@ export default function LessonsPage() {
     };
   }, [selectedCourse]);
 
-  const openCreate = () => {
-    setEditItem(null);
+  const resetVideoState = () => {
     setPendingVideo(null);
     setPendingCover(null);
-    setForm({ name: '', description: '', orderIndex: lessons.length + 1, durationSec: 300, videoUrl: '' });
+    setVideoError(null);
+    setDurationDetecting(false);
+    setUploadPct(null);
+  };
+
+  const openCreate = () => {
+    setEditItem(null);
+    resetVideoState();
+    setForm({ name: '', description: '', durationSec: 0, videoUrl: '' });
     setModalOpen(true);
   };
 
   const openEdit = (item: Lesson) => {
     setEditItem(item);
-    setPendingVideo(null);
-    setPendingCover(null);
-    setForm({ name: item.name, description: item.description || '', orderIndex: item.orderIndex, durationSec: item.durationSec || 300, videoUrl: item.videoUrl || '' });
+    resetVideoState();
+    setForm({ name: item.name, description: item.description || '', durationSec: item.durationSec || 0, videoUrl: item.videoUrl || '' });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
-    const payload = { ...form, courseId: selectedCourse };
+    if (videoError) return;
+    const payload: Record<string, unknown> = {
+      name: form.name,
+      description: form.description,
+      videoUrl: form.videoUrl,
+      courseId: selectedCourse,
+    };
+    // Davomiylik faqat aniqlangan bo'lsa yuboriladi — aks holda serverdagi
+    // qiymat (ffprobe natijasi) nolga almashtirilib ketmasligi uchun.
+    if (form.durationSec > 0) payload.durationSec = form.durationSec;
+    // Tartib raqami: yangi dars ro'yxat oxiriga. Tahrirlashda umuman
+    // yuborilmaydi — dars qayerda turgan bo'lsa, shu joyida qoladi.
+    if (!editItem) payload.orderIndex = lessons.length + 1;
+
     setVideoUploading(!!pendingVideo || !!pendingCover);
     try {
       let lessonId = editItem?.id;
@@ -172,15 +201,34 @@ export default function LessonsPage() {
       if (pendingVideo && lessonId) {
         const fd = new FormData();
         fd.append('file', pendingVideo);
-        await api.post(`/admin/lessons/${lessonId}/upload-video`, fd).catch(() => {});
+        setUploadPct(0);
+        try {
+          await api.post(`/admin/lessons/${lessonId}/upload-video`, fd, {
+            // 2 GB yuklash soatlab ketishi mumkin — standart 60s timeout o'chiriladi.
+            timeout: 0,
+            onUploadProgress: (e) => {
+              if (e.total) setUploadPct(Math.round((e.loaded / e.total) * 100));
+            },
+          });
+        } catch (e: unknown) {
+          const status = (e as { response?: { status?: number } })?.response?.status;
+          setVideoError(
+            status === 413
+              ? 'Video hajmi 2 GB dan oshmasligi kerak.'
+              : 'Videoni yuklab bo\'lmadi. Internetni tekshirib qayta urinib ko\'ring.'
+          );
+          setUploadPct(null);
+          setVideoUploading(false);
+          return;
+        }
+        setUploadPct(null);
       }
       if (pendingCover && lessonId) {
         const fd = new FormData();
         fd.append('file', pendingCover);
         await api.post(`/admin/lessons/${lessonId}/upload-cover`, fd).catch(() => {});
       }
-      setPendingVideo(null);
-      setPendingCover(null);
+      resetVideoState();
       setModalOpen(false);
       const list = await fetchLessons();
       // Watch ko'rinishi ochiq bo'lsa — yangilangan dars bilan yangilaymiz
@@ -396,19 +444,44 @@ export default function LessonsPage() {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  // Tanlangan video fayldan davomiylikni avtomatik aniqlab formaga yozadi
+  /**
+   * Tanlangan video fayldan davomiylikni brauzerda aniqlaydi (1-qadam).
+   * Fayl to'liq o'qilmaydi — faqat `preload="metadata"` bilan sarlavha o'qiladi,
+   * shuning uchun 2 GB fayl ham bir zumda aniqlanadi.
+   *
+   * Brauzer kodekni tushunmasa (masalan .mkv, .avi), bu yerda aniqlanmaydi —
+   * u holda server tomonda ffprobe aniqlab beradi (2-qadam, upload-video
+   * endpointida). Ya'ni davomiylik qo'lda kiritilmaydi.
+   */
   const detectVideoDuration = (file: File) => {
+    setDurationDetecting(true);
     const url = URL.createObjectURL(file);
     const video = document.createElement('video');
     video.preload = 'metadata';
-    video.onloadedmetadata = () => {
+    const done = () => {
       URL.revokeObjectURL(url);
+      setDurationDetecting(false);
+    };
+    video.onloadedmetadata = () => {
       if (Number.isFinite(video.duration) && video.duration > 0) {
         setForm((f) => ({ ...f, durationSec: Math.round(video.duration) }));
       }
+      done();
     };
-    video.onerror = () => URL.revokeObjectURL(url);
+    video.onerror = done;
     video.src = url;
+  };
+
+  // Video tanlanganda: hajmni tekshirish + davomiylikni aniqlash
+  const onVideoSelected = (file: File) => {
+    if (file.size > MAX_VIDEO_BYTES) {
+      setPendingVideo(null);
+      setVideoError(`Video hajmi 2 GB dan oshmasligi kerak (tanlangan: ${fmtBytes(file.size)}).`);
+      return;
+    }
+    setVideoError(null);
+    setPendingVideo(file);
+    detectVideoDuration(file);
   };
 
   return (
@@ -588,14 +661,33 @@ export default function LessonsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Tavsif</label>
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className={inputCls} />
           </div>
+          {/* Tartib raqami va davomiylik qo'lda kiritilmaydi — faqat ko'rsatiladi */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tartib raqami</label>
-              <input type="number" value={form.orderIndex} onChange={(e) => setForm({ ...form, orderIndex: Number(e.target.value) })} className={inputCls} />
+              <div className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-gray-50 border border-gray-200 text-gray-600">
+                <GripVertical size={14} className="text-gray-400 shrink-0" />
+                <span className="font-medium">{editItem ? editItem.orderIndex : lessons.length + 1}</span>
+                <span className="text-xs text-gray-400 truncate">
+                  {editItem ? '· sudrab o\'zgartiriladi' : '· ro\'yxat oxiriga'}
+                </span>
+              </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Davomiyligi (sek)</label>
-              <input type="number" value={form.durationSec} onChange={(e) => setForm({ ...form, durationSec: Number(e.target.value) })} className={inputCls} />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Davomiyligi</label>
+              <div className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-gray-50 border border-gray-200 text-gray-600">
+                <Clock size={14} className="text-gray-400 shrink-0" />
+                {durationDetecting ? (
+                  <span className="text-xs text-gray-400">Aniqlanmoqda…</span>
+                ) : form.durationSec > 0 ? (
+                  <>
+                    <span className="font-medium">{fmtDur(form.durationSec)}</span>
+                    <span className="text-xs text-gray-400">· avtomatik</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-400">Video yuklangach aniqlanadi</span>
+                )}
+              </div>
             </div>
           </div>
           <div>
@@ -604,13 +696,27 @@ export default function LessonsPage() {
               <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm text-[var(--primary)] cursor-pointer hover:bg-gray-50">
                 <Upload size={15} /> Video tanlash
                 <input type="file" accept="video/*" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) { setPendingVideo(f); detectVideoDuration(f); } }} />
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) onVideoSelected(f); }} />
               </label>
               <span className="text-xs text-gray-500 truncate flex-1">
-                {pendingVideo ? pendingVideo.name : (form.videoUrl ? 'Video yuklangan ✓' : 'Tanlanmagan')}
+                {pendingVideo
+                  ? `${pendingVideo.name} · ${fmtBytes(pendingVideo.size)}`
+                  : (form.videoUrl ? 'Video yuklangan ✓' : 'Tanlanmagan')}
               </span>
             </div>
-            <p className="text-xs text-gray-400 mt-1">MP4 va boshqa video formatlar. Saqlanganda yuklanadi.</p>
+            {uploadPct !== null && (
+              <div className="mt-2">
+                <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full bg-[var(--primary)] transition-all" style={{ width: `${uploadPct}%` }} />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Yuklanmoqda — {uploadPct}%</p>
+              </div>
+            )}
+            {videoError ? (
+              <p className="text-xs text-red-600 mt-1">{videoError}</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">MP4 va boshqa video formatlar · maksimal 2 GB. Saqlanganda yuklanadi.</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Muqova rasmi — oboloshka (ixtiyoriy)</label>
@@ -632,8 +738,10 @@ export default function LessonsPage() {
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
-            <Button onClick={handleSave} disabled={videoUploading}>
-              {videoUploading ? 'Yuklanmoqda…' : (editItem ? 'Saqlash' : 'Yaratish')}
+            <Button onClick={handleSave} disabled={videoUploading || !!videoError || durationDetecting}>
+              {videoUploading
+                ? (uploadPct !== null ? `Yuklanmoqda… ${uploadPct}%` : 'Yuklanmoqda…')
+                : (editItem ? 'Saqlash' : 'Yaratish')}
             </Button>
           </div>
         </div>
