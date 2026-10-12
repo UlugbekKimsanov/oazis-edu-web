@@ -58,3 +58,63 @@ export interface LeadPayload {
 export async function submitLead(payload: LeadPayload): Promise<void> {
   await client.post('/api/landing/leads', payload);
 }
+
+/** Admin panel boshqaradigan jonli kurs katalogi elementi (GET /api/v1/courses). */
+export interface ApiCourse {
+  id: number;
+  name: string;
+  category?: string;
+  imageUrl?: string;
+  backgroundUrl?: string;
+  flagEmoji?: string;
+  goal?: string;
+  isPremium?: boolean;
+  price?: number;
+  priceLabel?: string;
+  lessonCount?: number;
+  hours?: number;
+}
+
+/** Admin panel boshqaradigan jonli kitob katalogi elementi (GET /api/v1/books). */
+export interface ApiBook {
+  id: number;
+  title: string;
+  author?: string;
+  category?: string;
+  description?: string;
+  price?: number;
+  priceLabel?: string;
+  isFree?: boolean;
+  emoji?: string;
+  rating?: number;
+  reviewCount?: number;
+  pageCount?: number;
+  coverUrl?: string;
+}
+
+function unwrapList<T>(data: unknown): T[] {
+  const raw = (data && typeof data === 'object' && 'data' in data)
+    ? (data as { data?: unknown }).data
+    : data;
+  return Array.isArray(raw) ? (raw as T[]) : [];
+}
+
+/** Jonli kurslar ro'yxati; xatoda bo'sh massiv (chaqiruvchi fallback ko'rsatadi). */
+export async function fetchCourses(): Promise<ApiCourse[]> {
+  try {
+    const res = await client.get('/api/v1/courses');
+    return unwrapList<ApiCourse>(res.data);
+  } catch {
+    return [];
+  }
+}
+
+/** Jonli kitoblar ro'yxati; xatoda bo'sh massiv (bo'lim ko'rsatilmaydi). */
+export async function fetchBooks(): Promise<ApiBook[]> {
+  try {
+    const res = await client.get('/api/v1/books');
+    return unwrapList<ApiBook>(res.data);
+  } catch {
+    return [];
+  }
+}

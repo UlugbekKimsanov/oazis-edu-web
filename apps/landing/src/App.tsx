@@ -8,6 +8,7 @@ import { CourseInfo } from './components/sections/CourseInfo';
 import { Goals } from './components/sections/Goals';
 import { Testimonials } from './components/sections/Testimonials';
 import { Courses } from './components/sections/Courses';
+import { Books } from './components/sections/Books';
 import { Bonuses } from './components/sections/Bonuses';
 import { SignupForm } from './components/sections/SignupForm';
 import { Footer } from './components/sections/Footer';
@@ -43,6 +44,7 @@ function App() {
         <Testimonials title={content.testimonialsTitle} testimonials={content.testimonials} />
         <Courses title={content.coursesTitle} courses={content.courses} cardText={content.courseCard} />
         <Bonuses title={content.bonusTitle} text={content.bonusText} books={content.bonusBooks} />
+        <Books />
         <SignupForm cta={content.cta} formCopy={content.leadForm} />
       </main>
       <Footer logo={content.navbar.logo} footer={content.footer} contacts={content.contacts} />
