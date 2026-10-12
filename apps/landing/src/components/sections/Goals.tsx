@@ -15,7 +15,13 @@ export function Goals({ title, goals }: { title: string; goals: Goal[] }) {
               className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
             >
               {img ? (
-                <img src={img} alt={g.title} className="h-40 w-full object-cover" />
+                <img
+                  src={img}
+                  alt={g.title}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-40 w-full object-cover"
+                />
               ) : (
                 <div className="flex h-40 items-center justify-center bg-gradient-to-br from-primary to-primary-dark text-white">
                   <IconGlyph name={g.icon} className="h-14 w-14" />

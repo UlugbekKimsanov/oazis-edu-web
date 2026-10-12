@@ -19,12 +19,16 @@ export function LeadForm({
   phoneLabel,
   submitLabel,
   copy,
+  autoFocusPhone = false,
 }: {
   onSuccess?: () => void;
   nameLabel: string;
   phoneLabel: string;
   submitLabel: string;
   copy: LandingContent['leadForm'];
+  /** Telefon inputiga avtomatik fokus — faqat modal kontekstida yoqiladi,
+   * inline formada sahifa ochilishida pastga sakrab ketmasligi uchun o'chiq. */
+  autoFocusPhone?: boolean;
 }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('+998 ');
@@ -62,7 +66,7 @@ export function LeadForm({
       <label className="space-y-1.5">
         <span className="text-sm font-semibold text-gray-700">{phoneLabel}</span>
         <input
-          autoFocus
+          autoFocus={autoFocusPhone}
           required
           className={inputClass}
           inputMode="tel"

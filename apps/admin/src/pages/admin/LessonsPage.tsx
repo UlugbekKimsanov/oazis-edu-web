@@ -35,6 +35,8 @@ export default function LessonsPage() {
   const [pendingCover, setPendingCover] = useState<File | null>(null);
   const [videoUploading, setVideoUploading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  // Dars saqlash (PUT/POST) xatosi — modal ichida banner sifatida ko'rsatiladi
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [durationDetecting, setDurationDetecting] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
 
@@ -155,6 +157,7 @@ export default function LessonsPage() {
     setPendingVideo(null);
     setPendingCover(null);
     setVideoError(null);
+    setSaveError(null);
     setDurationDetecting(false);
     setUploadPct(null);
   };
@@ -188,6 +191,7 @@ export default function LessonsPage() {
     // yuborilmaydi — dars qayerda turgan bo'lsa, shu joyida qoladi.
     if (!editItem) payload.orderIndex = lessons.length + 1;
 
+    setSaveError(null);
     setVideoUploading(!!pendingVideo || !!pendingCover);
     try {
       let lessonId = editItem?.id;
@@ -236,7 +240,10 @@ export default function LessonsPage() {
         const fresh = list.find((l) => l.id === lessonId);
         if (fresh) setDetailLesson(fresh);
       }
-    } catch { /* silent */ }
+    } catch {
+      // Xatoni yutmaymiz — admin saqlanmaganini bilishi shart
+      setSaveError("Saqlashda xatolik yuz berdi. Internetni tekshirib qayta urinib ko'ring.");
+    }
     finally { setVideoUploading(false); }
   };
 
@@ -736,6 +743,11 @@ export default function LessonsPage() {
             </div>
             <p className="text-xs text-gray-400 mt-1">Yuklansa, video oboloshkasi sifatida ko'rsatiladi.</p>
           </div>
+          {saveError && (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {saveError}
+            </div>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
             <Button onClick={handleSave} disabled={videoUploading || !!videoError || durationDetecting}>

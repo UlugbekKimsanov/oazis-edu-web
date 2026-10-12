@@ -183,8 +183,13 @@ export default function CoursesPage() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("O'chirishni tasdiqlaysizmi?")) return;
-    await api.delete(`/admin/courses/${id}`);
-    fetchAll();
+    try {
+      await api.delete(`/admin/courses/${id}`);
+      fetchAll();
+    } catch {
+      // Xatoni yutmaymiz — admin kurs o'chmaganini bilishi shart
+      alert("Kursni o'chirib bo'lmadi. Qayta urinib ko'ring.");
+    }
   };
 
   // ── Drag-and-drop tartiblash (@dnd-kit, faqat shu til ichida) ──

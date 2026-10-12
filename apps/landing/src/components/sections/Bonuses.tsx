@@ -23,6 +23,8 @@ export function Bonuses({
                 key={b.id}
                 src={cover}
                 alt={b.title}
+                loading="lazy"
+                decoding="async"
                 className="aspect-[3/4] w-full rounded-xl object-cover shadow-sm"
               />
             ) : (

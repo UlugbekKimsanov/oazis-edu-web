@@ -61,6 +61,7 @@ export function LeadModal({
           phoneLabel={cta.phoneLabel}
           submitLabel={cta.submitLabel}
           copy={formCopy}
+          autoFocusPhone
         />
       </div>
     </div>

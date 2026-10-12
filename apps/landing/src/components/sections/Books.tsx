@@ -22,6 +22,8 @@ function BookCard({ book }: { book: ApiBook }) {
         <img
           src={cover}
           alt={book.title}
+          loading="lazy"
+          decoding="async"
           className="mb-3 aspect-[3/4] w-full rounded-xl object-cover"
         />
       ) : (

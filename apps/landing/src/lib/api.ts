@@ -19,10 +19,14 @@ const client = axios.create({
  * Rasm yo'lini to'liq URLga aylantiradi.
  * Bo'sh bo'lsa '' qaytaradi (komponent placeholder ko'rsatadi),
  * to'liq http(s) URL bo'lsa o'zini, aks holda `${API_BASE}/files/<path>`.
+ * Backend ba'zi yo'llarni allaqachon '/files/...' prefiksi bilan qaytaradi —
+ * bunday yo'lga qayta prefiks qo'shilmaydi (aks holda /files/files/... 404 bo'ladi).
  */
 export function fileUrl(p?: string): string {
   if (!p) return '';
-  return /^https?:\/\//i.test(p) ? p : `${API_BASE}/files/${p.replace(/^\//, '')}`;
+  if (/^https?:\/\//i.test(p)) return p;
+  const clean = p.replace(/^\//, '');
+  return clean.startsWith('files/') ? `${API_BASE}/${clean}` : `${API_BASE}/files/${clean}`;
 }
 
 /**

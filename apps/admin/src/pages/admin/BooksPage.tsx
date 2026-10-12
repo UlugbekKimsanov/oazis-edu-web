@@ -38,6 +38,8 @@ export default function BooksPage() {
   // Yaratishda tanlangan galereya rasmlari (saqlashda yuklanadi)
   const [pendingImages, setPendingImages] = useState<{ file: File; url: string }[]>([]);
   const [galleryUploading, setGalleryUploading] = useState(false);
+  // Galereya yuklashdagi xato — modal ichida ko'rsatiladi
+  const [galleryError, setGalleryError] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: '', author: '', category: 'digital' as 'digital' | 'print',
     description: '', price: 0, isFree: false, emoji: '📚', pages: '', language: '',
@@ -92,6 +94,7 @@ export default function BooksPage() {
     setEditItem(null);
     clearPendingCover();
     clearPendingImages();
+    setGalleryError(null);
     setForm({ title: '', author: '', category: 'digital', description: '', price: 0, isFree: false, emoji: '📚', pages: '', language: languages[0]?.name || '', deliveryType: 'FREE', deliveryPrice: 0 });
     setModalOpen(true);
   };
@@ -100,6 +103,7 @@ export default function BooksPage() {
     setEditItem(item);
     clearPendingCover();
     clearPendingImages();
+    setGalleryError(null);
     setForm({
       title: item.title, author: item.author, category: item.category,
       description: item.description || '', price: item.price, isFree: item.isFree,
@@ -169,18 +173,35 @@ export default function BooksPage() {
     setPendingCoverUrl(URL.createObjectURL(file));
   };
 
-  // Tahrirlashda galereyaga rasm qo'shish — darhol yuklanadi
-  const uploadGalleryImage = async (file: File) => {
+  // Tahrirlashda galereyaga rasm qo'shish — darhol, lekin KETMA-KET yuklanadi.
+  // Parallel so'rovlarda backend bir xil eski ro'yxatni o'qib qayta yozadi va
+  // rasmlar yo'qolib qoladi, shuning uchun har fayl navbat bilan yuboriladi.
+  const uploadGalleryImages = async (files: File[]) => {
     if (!editItem) return;
+    setGalleryError(null);
     setGalleryUploading(true);
+    let failed = 0;
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await api.post(`/admin/books/${editItem.id}/upload-image`, fd);
-      const updated: Book = res.data.data ?? res.data;
-      setEditItem(updated);
+      for (const file of files) {
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await api.post(`/admin/books/${editItem.id}/upload-image`, fd);
+          const updated: Book = res.data.data ?? res.data;
+          setEditItem(updated);
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed > 0) {
+        setGalleryError(
+          failed === files.length
+            ? "Rasmlarni yuklab bo'lmadi. Qayta urinib ko'ring."
+            : `${failed} ta rasmni yuklab bo'lmadi. Qayta urinib ko'ring.`,
+        );
+      }
       fetchBooks();
-    } catch { /* ignore */ } finally {
+    } finally {
       setGalleryUploading(false);
     }
   };
@@ -414,7 +435,7 @@ export default function BooksPage() {
                     const files = Array.from(e.target.files ?? []);
                     if (!files.length) return;
                     if (editItem) {
-                      files.forEach((f) => uploadGalleryImage(f));
+                      void uploadGalleryImages(files);
                     } else {
                       setPendingImages((items) => [
                         ...items,
@@ -425,6 +446,9 @@ export default function BooksPage() {
                   }} />
               </label>
             </div>
+            {galleryError && (
+              <p role="alert" className="text-xs text-red-600 mt-1">{galleryError}</p>
+            )}
             <p className="text-xs text-gray-400 mt-1">
               Mobil ilovada kitob sahifasida galereya sifatida ko'rinadi; rasm bosilganda kattalashtirib ko'rish mumkin.
             </p>

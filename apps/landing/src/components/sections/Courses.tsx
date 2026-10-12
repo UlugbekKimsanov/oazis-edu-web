@@ -25,6 +25,8 @@ function ApiCourseCard({
         <img
           src={cover}
           alt={course.name}
+          loading="lazy"
+          decoding="async"
           className="mb-4 h-28 w-full rounded-xl object-cover"
         />
       ) : (
