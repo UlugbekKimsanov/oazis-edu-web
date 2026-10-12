@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { landingContent, type LandingContent } from './data/landing';
 import { fetchLandingContent } from './lib/api';
+import { CheckoutOverlay } from './components/checkout/CheckoutOverlay';
 import { Navbar } from './components/sections/Navbar';
 import { Hero } from './components/sections/Hero';
 import { Features } from './components/sections/Features';
@@ -18,6 +19,10 @@ function App() {
   // Statik kontent bilan boshlanadi — backend bo'lmasa ham sahifa to'liq ishlaydi.
   const [content, setContent] = useState<LandingContent>(landingContent);
   const [leadModalOpen, setLeadModalOpen] = useState(false);
+  // Mobil ilovadan kelgan checkout tokeni (?t=...) — faqat state'da saqlanadi.
+  const [checkoutToken, setCheckoutToken] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('t'),
+  );
 
   useEffect(() => {
     let active = true;
@@ -28,6 +33,18 @@ function App() {
       active = false;
     };
   }, []);
+
+  // Token URL orqali referrer/analytics'ga sizib chiqmasligi uchun
+  // u o'qilgan zahoti manzildan olib tashlanadi; overlay state orqali ochiq qoladi.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('t')) {
+      url.searchParams.delete('t');
+      window.history.replaceState(null, '', url.toString());
+    }
+  }, []);
+
+  const closeCheckout = useCallback(() => setCheckoutToken(null), []);
 
   return (
     <div className="min-h-screen bg-white">
@@ -55,6 +72,9 @@ function App() {
         cta={content.cta}
         formCopy={content.leadForm}
       />
+      {checkoutToken && (
+        <CheckoutOverlay token={checkoutToken} onClose={closeCheckout} />
+      )}
     </div>
   );
 }

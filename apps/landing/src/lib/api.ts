@@ -122,3 +122,61 @@ export async function fetchBooks(): Promise<ApiBook[]> {
     return [];
   }
 }
+
+/** Checkout'da tanlanadigan to'lov usuli. */
+export interface CheckoutMethod {
+  code: string;
+  name: string;
+  isNasiya?: boolean;
+}
+
+/** Mobil ilovadan kelgan token bo'yicha checkout ma'lumotlari. */
+export interface CheckoutInfo {
+  productType: 'course' | 'book';
+  productId: number;
+  title: string;
+  priceLabel: string;
+  amountSum?: number;
+  deliveryLabel?: string | null;
+  userName?: string;
+  methods: CheckoutMethod[];
+  expiresAt?: string;
+}
+
+/**
+ * ApiResponse envelope'ini ({success,message,data}) ochadi.
+ * success=false bo'lsa yoki data bo'lmasa xato tashlaydi —
+ * checkout oqimida fallback yo'q, chaqiruvchi xatoni o'zi ko'rsatadi.
+ */
+function unwrapOrThrow<T>(data: unknown): T {
+  if (data && typeof data === 'object' && 'data' in data) {
+    const env = data as { success?: boolean; message?: string; data?: unknown };
+    if (env.success === false || env.data == null) {
+      throw new Error(env.message || "So'rov muvaffaqiyatsiz yakunlandi");
+    }
+    return env.data as T;
+  }
+  if (data == null) throw new Error("Server bo'sh javob qaytardi");
+  return data as T;
+}
+
+/** Token bo'yicha checkout ma'lumotlarini oladi; token noto'g'ri/muddati o'tgan bo'lsa throw. */
+export async function fetchCheckout(token: string): Promise<CheckoutInfo> {
+  const res = await client.get(`/api/landing/checkout/${encodeURIComponent(token)}`);
+  const info = unwrapOrThrow<CheckoutInfo>(res.data);
+  if (typeof info !== 'object' || !info.title) {
+    throw new Error("Checkout ma'lumotlari noto'g'ri formatda");
+  }
+  return info;
+}
+
+/** Tanlangan usul bilan to'lovni boshlaydi; muvaffaqiyatda redirect uchun checkoutUrl qaytaradi. */
+export async function payCheckout(token: string, method: string): Promise<string> {
+  const res = await client.post(
+    `/api/landing/checkout/${encodeURIComponent(token)}/pay`,
+    { method },
+  );
+  const data = unwrapOrThrow<{ checkoutUrl?: string }>(res.data);
+  if (!data.checkoutUrl) throw new Error("To'lov havolasi olinmadi");
+  return data.checkoutUrl;
+}
