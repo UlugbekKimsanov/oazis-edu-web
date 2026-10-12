@@ -58,6 +58,7 @@ export interface Course {
   backgroundImage?: string;
   flagEmoji?: string;
   goal?: string;
+  author?: string; // kurs muallifi (dars videosida ko'rsatiladi)
   isPremium: boolean;
   price?: number;
   priceLabel?: string;

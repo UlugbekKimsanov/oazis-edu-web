@@ -33,7 +33,7 @@ export default function CoursesPage() {
   const [editItem, setEditItem] = useState<Course | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [courseTeachers, setCourseTeachers] = useState<number[]>([]);
-  const [form, setForm] = useState({ name: '', languageId: 0, goal: '', isPremium: false, price: 0 });
+  const [form, setForm] = useState({ name: '', languageId: 0, goal: '', author: '', isPremium: false, price: 0 });
   const [uploading, setUploading] = useState<'cover' | 'background' | null>(null);
   // Sichqonchani 5px sudraganda drag boshlanadi (oddiy bosishda emas)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -108,13 +108,13 @@ export default function CoursesPage() {
 
   const openCreate = () => {
     setEditItem(null);
-    setForm({ name: '', languageId: langFilter || languages[0]?.id || 0, goal: '', isPremium: false, price: 0 });
+    setForm({ name: '', languageId: langFilter || languages[0]?.id || 0, goal: '', author: '', isPremium: false, price: 0 });
     setModalOpen(true);
   };
 
   const openEdit = (item: Course) => {
     setEditItem(item);
-    setForm({ name: item.name, languageId: item.languageId, goal: item.goal || '', isPremium: item.isPremium, price: item.price || 0 });
+    setForm({ name: item.name, languageId: item.languageId, goal: item.goal || '', author: item.author || '', isPremium: item.isPremium, price: item.price || 0 });
     setModalOpen(true);
   };
 
@@ -149,7 +149,9 @@ export default function CoursesPage() {
     const priceLabel = price ? `${price.toLocaleString('ru-RU')} so'm` : null;
     // flagEmoji tildan olinadi (kursda alohida emoji yo'q)
     const flagEmoji = langById(form.languageId)?.flagEmoji ?? '';
-    const payload = { ...form, flagEmoji, price, priceLabel };
+    // Muallif bo'sh bo'lsa null — mobil dars ekranida muallif qatori yashiriladi
+    const author = form.author.trim() || null;
+    const payload = { ...form, flagEmoji, author, price, priceLabel };
     try {
       if (editItem) {
         await api.put(`/admin/courses/${editItem.id}`, payload);
@@ -398,6 +400,20 @@ export default function CoursesPage() {
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]"
               placeholder="Noldan so'zlashuvgacha"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Muallif</label>
+            <input
+              value={form.author}
+              onChange={(e) => setForm({ ...form, author: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]"
+              placeholder="Masalan: Muhammad Akbarov"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Dars videosida muallif sifatida ko'rsatiladi. Bo'sh qolsa kursga
+              biriktirilgan ustoz ismi ishlatiladi.
+            </p>
           </div>
 
           {editItem ? (
