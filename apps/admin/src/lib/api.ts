@@ -8,9 +8,16 @@ export const API_ORIGIN: string =
 // WebSocket uchun mos origin (https -> wss, http -> ws)
 export const WS_ORIGIN = API_ORIGIN.replace(/^http/, 'ws');
 
-// DB'dagi fayl yo'li -> to'liq URL
-export const fileUrl = (p?: string) =>
-  p ? (/^https?:\/\//i.test(p) ? p : `${API_ORIGIN}/files/${p.replace(/^\//, '')}`) : '';
+// DB'dagi fayl yo'li -> to'liq URL.
+// Backend ba'zi javoblarda yo'lni allaqachon '/files/...' prefiksi bilan beradi
+// (masalan tanaffus musiqasi) — bunday yo'lga qayta prefiks qo'shilmaydi,
+// aks holda /files/files/... 404 bo'ladi.
+export const fileUrl = (p?: string) => {
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p)) return p;
+  const clean = p.replace(/^\//, '');
+  return clean.startsWith('files/') ? `${API_ORIGIN}/${clean}` : `${API_ORIGIN}/files/${clean}`;
+};
 
 const api = axios.create({
   baseURL: `${API_ORIGIN}/api/v1`,

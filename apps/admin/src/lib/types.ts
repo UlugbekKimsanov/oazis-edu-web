@@ -76,6 +76,7 @@ export interface Lesson {
   durationSec?: number;
   videoUrl?: string;
   coverImage?: string;
+  youtubeId?: string; // YouTube unlisted video ID (kiritilsa, mobil ilova YouTube pleyerda ko'rsatadi)
 }
 
 export interface Vocabulary {

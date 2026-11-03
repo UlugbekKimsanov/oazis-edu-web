@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Pencil, Trash2, BookOpen, FileQuestion, Dumbbell, MoreVertical, Search, Clock, PlayCircle, Upload, Image as ImageIcon, Headphones, GripVertical, Check, X, ArrowLeft } from 'lucide-react';
+import { Plus, Pencil, Trash2, BookOpen, FileQuestion, Dumbbell, MoreVertical, Search, Clock, PlayCircle, Upload, Image as ImageIcon, Headphones, GripVertical, Check, X, ArrowLeft, SquarePlay } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
 import api, { fileUrl } from '../../lib/api';
+import { parseYoutubeId, youtubeUrl } from '../../lib/youtube';
 import type { Course, Language, Lesson, Vocabulary, Question, Exercise, Audiobook } from '../../lib/types';
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]';
@@ -29,7 +30,8 @@ export default function LessonsPage() {
   const [editItem, setEditItem] = useState<Lesson | null>(null);
   // orderIndex formada yo'q: yangi darsda ro'yxat oxiriga qo'shiladi, keyin
   // faqat sudrab tartiblash (drag-and-drop) orqali o'zgaradi.
-  const [form, setForm] = useState({ name: '', description: '', durationSec: 0, videoUrl: '' });
+  // youtube — admin kiritgan xom matn (URL yoki ID); saqlashda parseYoutubeId bilan ID'ga aylanadi
+  const [form, setForm] = useState({ name: '', description: '', durationSec: 0, videoUrl: '', youtube: '' });
   // Video + cover fayl yuklash
   const [pendingVideo, setPendingVideo] = useState<File | null>(null);
   const [pendingCover, setPendingCover] = useState<File | null>(null);
@@ -165,14 +167,21 @@ export default function LessonsPage() {
   const openCreate = () => {
     setEditItem(null);
     resetVideoState();
-    setForm({ name: '', description: '', durationSec: 0, videoUrl: '' });
+    setForm({ name: '', description: '', durationSec: 0, videoUrl: '', youtube: '' });
     setModalOpen(true);
   };
 
   const openEdit = (item: Lesson) => {
     setEditItem(item);
     resetVideoState();
-    setForm({ name: item.name, description: item.description || '', durationSec: item.durationSec || 0, videoUrl: item.videoUrl || '' });
+    setForm({
+      name: item.name,
+      description: item.description || '',
+      durationSec: item.durationSec || 0,
+      videoUrl: item.videoUrl || '',
+      // Tahrirda mavjud ID qisqa havola ko'rinishida ko'rsatiladi
+      youtube: item.youtubeId ? youtubeUrl(item.youtubeId) : '',
+    });
     setModalOpen(true);
   };
 
@@ -182,6 +191,8 @@ export default function LessonsPage() {
       name: form.name,
       description: form.description,
       videoUrl: form.videoUrl,
+      // YouTube: bo'sh yoki tushunarsiz havola — null (tozalash), aks holda toza ID
+      youtubeId: parseYoutubeId(form.youtube),
       courseId: selectedCourse,
     };
     // Davomiylik faqat aniqlangan bo'lsa yuboriladi — aks holda serverdagi
@@ -479,6 +490,9 @@ export default function LessonsPage() {
     video.src = url;
   };
 
+  // YouTube havola holati: bo'sh emas-u, ID ajratib bo'lmasa — tushunarsiz
+  const youtubeInvalid = form.youtube.trim() !== '' && !parseYoutubeId(form.youtube);
+
   // Video tanlanganda: hajmni tekshirish + davomiylikni aniqlash
   const onVideoSelected = (file: File) => {
     if (file.size > MAX_VIDEO_BYTES) {
@@ -723,6 +737,24 @@ export default function LessonsPage() {
               <p className="text-xs text-red-600 mt-1">{videoError}</p>
             ) : (
               <p className="text-xs text-gray-400 mt-1">MP4 va boshqa video formatlar · maksimal 2 GB. Saqlanganda yuklanadi.</p>
+            )}
+          </div>
+          {/* YouTube havola — fayl yuklashga qo'shimcha (o'rnini bosmaydi) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">YouTube havola (ixtiyoriy)</label>
+            <div className="relative">
+              <SquarePlay size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" />
+              <input
+                value={form.youtube}
+                onChange={(e) => setForm({ ...form, youtube: e.target.value })}
+                placeholder="https://youtu.be/… yoki video ID"
+                className={`${inputCls} pl-9 ${youtubeInvalid ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+              />
+            </div>
+            {youtubeInvalid ? (
+              <p className="text-xs text-red-600 mt-1">Havola tushunarsiz</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">YouTube'dagi unlisted video havolasi. Kiritilsa, mobil ilova videoni YouTube pleyerda ko'rsatadi.</p>
             )}
           </div>
           <div>
@@ -1070,7 +1102,17 @@ function SortableLessonCard({
       {/* Pastki qism: nom + kebab (Tahrirlash / O'chirish) */}
       <div className="p-2.5 flex items-start gap-1.5">
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-1">{lesson.name}</p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-1 min-w-0">{lesson.name}</p>
+            {lesson.youtubeId && (
+              <span
+                title="YouTube video biriktirilgan"
+                className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 text-red-600 text-[10px] font-medium"
+              >
+                <SquarePlay size={10} /> YouTube
+              </span>
+            )}
+          </div>
           {lesson.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{lesson.description}</p>}
         </div>
         <div className="relative shrink-0">
