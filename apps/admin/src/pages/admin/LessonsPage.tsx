@@ -17,6 +17,91 @@ const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg foc
 const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 const fmtBytes = (b: number) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
 
+// ── Mashq (ko'p bo'shliqli) yordamchilari ────────────────────────
+/** Forma holati: gap, har bo'shliq uchun to'g'ri so'z, chalg'ituvchilar (vergul bilan) */
+type ExFormState = { sentence: string; answers: string[]; distractors: string };
+const BLANK_RE = /_+/g;
+/** Gapdagi bo'shliqlar soni — '_' ketma-ketligi 1 ta bo'shliq */
+const countBlanks = (s: string) => (s.match(BLANK_RE) || []).length;
+/** Vergul bilan yozilgan chalg'ituvchilarni tozalaydi: trim, bo'shlarni va to'g'ri javoblarga tenglarini tashlaydi */
+const parseDistractors = (raw: string, answers: string[]) => {
+  const ans = new Set(answers.map((a) => a.trim().toLowerCase()).filter(Boolean));
+  const seen = new Set<string>();
+  return raw.split(',').map((s) => s.trim()).filter((s) => {
+    const k = s.toLowerCase();
+    if (!s || ans.has(k) || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+/** Gap o'zgarganda javob inputlari sonini bo'shliqlar soniga moslaydi (kiritilganlar saqlanadi) */
+const syncAnswers = (sentence: string, prev: string[]) => {
+  const n = countBlanks(sentence);
+  return Array.from({ length: n }, (_, i) => prev[i] ?? '');
+};
+
+/** Mashq formasi maydonlari — qo'shish va tahrirlashda bir xil */
+function ExerciseFormFields({ form, onChange, setSentence }: {
+  form: ExFormState;
+  onChange: (f: ExFormState) => void;
+  setSentence: (f: ExFormState, s: string) => ExFormState;
+}) {
+  const blanks = countBlanks(form.sentence);
+  const distractors = parseDistractors(form.distractors, form.answers);
+  return (
+    <>
+      <input value={form.sentence} onChange={(e) => onChange(setSentence(form, e.target.value))} className={inputCls}
+        placeholder="Gap — har tushib qolgan so'z o'rniga _ qo'ying (bir nechta bo'lishi mumkin)" />
+      {form.sentence.trim() !== '' && blanks === 0 && (
+        <p className="text-[11px] text-amber-600">Gapda _ yo'q — tushib qolgan so'z o'rniga _ qo'ying</p>
+      )}
+      {blanks > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-gray-500">Har bo'shliq uchun to'g'ri so'z:</p>
+          {form.answers.map((a, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-6 h-6 shrink-0 rounded-full bg-green-50 border border-green-300 text-green-700 text-[11px] font-semibold flex items-center justify-center">{i + 1}</span>
+              <input value={a} onChange={(e) => { const answers = [...form.answers]; answers[i] = e.target.value; onChange({ ...form, answers }); }}
+                className={inputCls} placeholder={`${i + 1}-bo'shliq — to'g'ri so'z`} />
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="space-y-1.5">
+        <p className="text-[11px] text-gray-500">Chalg'ituvchi so'zlar — vergul bilan:</p>
+        <input value={form.distractors} onChange={(e) => onChange({ ...form, distractors: e.target.value })} className={inputCls} placeholder="we, they, me" />
+        {distractors.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {distractors.map((d, k) => (
+              <span key={k} className="px-2.5 py-1 rounded-lg text-xs border bg-white border-gray-200 text-gray-600">{d}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Ro'yxatda gap — bo'shliqlar o'rnida yashil chip ichida to'g'ri javob */
+function ExerciseSentencePreview({ ex }: { ex: Exercise }) {
+  const parts = ex.sentence.split(BLANK_RE);
+  const blanks = [...(ex.blanks ?? [])].sort((a, b) => a.position - b.position);
+  return (
+    <p className="text-sm font-medium leading-7">
+      {parts.map((part, i) => (
+        <span key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <span className="inline-block mx-0.5 px-2 py-0.5 rounded-lg text-xs border bg-green-50 border-green-300 text-green-700 font-semibold align-middle">
+              {blanks[i]?.correctAnswer || '?'}
+            </span>
+          )}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 
 export default function LessonsPage() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -65,8 +150,9 @@ export default function LessonsPage() {
   // Inline qo'shish formalari
   const [vocabForm, setVocabForm] = useState({ uz: '', target: '' });
   const [qForm, setQForm] = useState({ text: '', a: '', b: '', c: '', d: '', correct: 'A' });
-  // Mashq: gap (_ = bo'sh joy) + 3 ta variant + to'g'risining indeksi
-  const [exForm, setExForm] = useState({ sentence: '', opts: ['', '', ''], correctIdx: 0 });
+  // Mashq: gap (har '_' = bo'sh joy, bir nechta bo'lishi mumkin) +
+  // har bo'shliq uchun to'g'ri so'z + chalg'ituvchi so'zlar (vergul bilan)
+  const [exForm, setExForm] = useState<ExFormState>({ sentence: '', answers: [], distractors: '' });
 
   // Inline tahrirlash holatlari
   const [editVocabId, setEditVocabId] = useState<number | null>(null);
@@ -74,7 +160,7 @@ export default function LessonsPage() {
   const [editQId, setEditQId] = useState<number | null>(null);
   const [qEdit, setQEdit] = useState({ text: '', a: '', b: '', c: '', d: '', correct: 'A' });
   const [editExId, setEditExId] = useState<number | null>(null);
-  const [exEdit, setExEdit] = useState({ sentence: '', opts: ['', '', ''], correctIdx: 0 });
+  const [exEdit, setExEdit] = useState<ExFormState>({ sentence: '', answers: [], distractors: '' });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -361,9 +447,11 @@ export default function LessonsPage() {
   };
 
   // ── Mashqlar ─────────────────────────────────────────────
+  const emptyExForm = (): ExFormState => ({ sentence: '', answers: [], distractors: '' });
+
   const openExercises = async (lesson: Lesson) => {
     setCurrentLesson(lesson);
-    setExForm({ sentence: '', opts: ['', '', ''], correctIdx: 0 });
+    setExForm(emptyExForm());
     setEditExId(null);
     try {
       const res = await api.get(`/admin/lessons/${lesson.id}/exercises`);
@@ -372,33 +460,51 @@ export default function LessonsPage() {
     setExercisesModal(true);
   };
 
-  // 3 ta variantdan to'g'risini ajratib, {options, correctAnswer} quradi
-  const exPayload = (sentence: string, opts: string[], correctIdx: number) => {
-    const clean = opts.map((s) => s.trim());
+  // Gap o'zgarganda — bo'shliqlar soniga mos javob inputlari
+  const setExSentence = (f: ExFormState, sentence: string): ExFormState =>
+    ({ ...f, sentence, answers: syncAnswers(sentence, f.answers) });
+
+  // {sentence, options (faqat chalg'ituvchilar), correctAnswers (bo'shliqlar tartibida)}
+  const exPayload = (f: ExFormState) => {
+    const correctAnswers = f.answers.map((s) => s.trim());
     return {
-      sentence: sentence.trim(),
-      options: clean.filter(Boolean).join(','),
-      correctAnswer: clean[correctIdx] || '',
+      sentence: f.sentence.trim(),
+      options: parseDistractors(f.distractors, correctAnswers).join(','),
+      correctAnswers,
     };
   };
-  const exValid = (sentence: string, opts: string[], correctIdx: number) =>
-    sentence.trim() !== '' && opts.filter((s) => s.trim()).length >= 2 && (opts[correctIdx] || '').trim() !== '';
+  // Gap bor, kamida 1 bo'shliq, har bo'shliqqa so'z, kamida 1 chalg'ituvchi
+  const exValid = (f: ExFormState) =>
+    f.sentence.trim() !== '' &&
+    countBlanks(f.sentence) >= 1 &&
+    f.answers.length === countBlanks(f.sentence) &&
+    f.answers.every((a) => a.trim() !== '') &&
+    parseDistractors(f.distractors, f.answers).length >= 1;
 
   const addExercise = async () => {
-    if (!currentLesson || !exValid(exForm.sentence, exForm.opts, exForm.correctIdx)) return;
+    if (!currentLesson || !exValid(exForm)) return;
     await api.post(`/admin/lessons/${currentLesson.id}/exercises`, {
-      ...exPayload(exForm.sentence, exForm.opts, exForm.correctIdx),
+      ...exPayload(exForm),
       name: 'Fill', orderIndex: exercisesList.length + 1,
     }).catch(() => {});
-    setExForm({ sentence: '', opts: ['', '', ''], correctIdx: 0 });
+    setExForm(emptyExForm());
     openExercises(currentLesson);
   };
 
   const saveExerciseEdit = async () => {
-    if (editExId == null || !exValid(exEdit.sentence, exEdit.opts, exEdit.correctIdx)) return;
-    await api.put(`/admin/exercises/${editExId}`, exPayload(exEdit.sentence, exEdit.opts, exEdit.correctIdx)).catch(() => {});
+    if (editExId == null || !exValid(exEdit)) return;
+    await api.put(`/admin/exercises/${editExId}`, exPayload(exEdit)).catch(() => {});
     setEditExId(null);
     if (currentLesson) openExercises(currentLesson);
+  };
+
+  // Tahrirlashga ochish — blanks va chalg'ituvchilar formaga tushadi
+  const startExerciseEdit = (ex: Exercise) => {
+    setEditExId(ex.id);
+    const blanks = [...(ex.blanks ?? [])].sort((a, b) => a.position - b.position);
+    const answers = syncAnswers(ex.sentence, blanks.map((b) => b.correctAnswer));
+    const distractors = (ex.options || '').split(',').map((s) => s.trim()).filter(Boolean).join(', ');
+    setExEdit({ sentence: ex.sentence, answers, distractors });
   };
 
   const deleteExercise = async (id: number) => {
@@ -911,70 +1017,41 @@ export default function LessonsPage() {
 
       {/* Mashqlar modal — inline tahrirlash + qo'shish */}
       <Modal open={exercisesModal} onClose={() => setExercisesModal(false)} title={`Mashq — ${currentLesson?.name || ''}`} maxWidth="max-w-2xl">
-        {/* Yangi mashq — gap + 3 variant, to'g'risini radio bilan belgilash */}
+        {/* Yangi mashq — gap (ko'p '_' bo'lishi mumkin) + har bo'shliqqa to'g'ri so'z + chalg'ituvchilar */}
         <div className="space-y-2 pb-3 mb-3 border-b border-gray-100">
-          <input value={exForm.sentence} onChange={(e) => setExForm({ ...exForm, sentence: e.target.value })} className={inputCls} placeholder="Gap — tushib qolgan so'z o'rniga _ qo'ying" />
-          <p className="text-[11px] text-gray-500">Variantlar — to'g'ri so'zni ⦿ bilan belgilang:</p>
-          {exForm.opts.map((o, i) => (
-            <label key={i} className="flex items-center gap-2">
-              <input type="radio" name="exAddCorrect" checked={exForm.correctIdx === i}
-                onChange={() => setExForm({ ...exForm, correctIdx: i })}
-                className="w-4 h-4 text-[var(--primary)] focus:ring-[var(--primary)]" title="To'g'ri javob" />
-              <input value={o} onChange={(e) => { const opts = [...exForm.opts]; opts[i] = e.target.value; setExForm({ ...exForm, opts }); }}
-                className={inputCls} placeholder={`${i + 1}-variant`} />
-            </label>
-          ))}
-          <Button size="sm" onClick={addExercise} disabled={!exValid(exForm.sentence, exForm.opts, exForm.correctIdx)}><Plus size={14} /> Qo'shish</Button>
+          <ExerciseFormFields form={exForm} onChange={setExForm} setSentence={setExSentence} />
+          <Button size="sm" onClick={addExercise} disabled={!exValid(exForm)}><Plus size={14} /> Qo'shish</Button>
         </div>
         <div className="space-y-2">
           {exercisesList.length === 0 ? <p className="text-sm text-gray-500">Mashqlar yo'q</p> : exercisesList.map((ex) => (
             <div key={ex.id} className="p-3 bg-gray-50 rounded-lg">
               {editExId === ex.id ? (
                 <div className="space-y-2">
-                  <input value={exEdit.sentence} onChange={(e) => setExEdit({ ...exEdit, sentence: e.target.value })} className={inputCls} placeholder="Gap — _ = bo'sh joy" />
-                  <p className="text-[11px] text-gray-500">To'g'ri so'zni ⦿ bilan belgilang:</p>
-                  {exEdit.opts.map((o, i) => (
-                    <label key={i} className="flex items-center gap-2">
-                      <input type="radio" name={`exEdit-${ex.id}`} checked={exEdit.correctIdx === i}
-                        onChange={() => setExEdit({ ...exEdit, correctIdx: i })}
-                        className="w-4 h-4 text-[var(--primary)] focus:ring-[var(--primary)]" title="To'g'ri javob" />
-                      <input value={o} onChange={(e) => { const opts = [...exEdit.opts]; opts[i] = e.target.value; setExEdit({ ...exEdit, opts }); }}
-                        className={inputCls} placeholder={`${i + 1}-variant`} />
-                    </label>
-                  ))}
+                  <ExerciseFormFields form={exEdit} onChange={setExEdit} setSentence={setExSentence} />
                   <div className="flex gap-2">
-                    <button onClick={saveExerciseEdit} className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200"><Check size={15} /></button>
+                    <button onClick={saveExerciseEdit} disabled={!exValid(exEdit)} className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-40"><Check size={15} /></button>
                     <button onClick={() => setEditExId(null)} className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200"><X size={15} /></button>
                   </div>
                 </div>
               ) : (
                 <>
                   <div className="flex justify-between gap-2">
-                    <p className="text-sm font-medium">{ex.sentence}</p>
+                    <ExerciseSentencePreview ex={ex} />
                     <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => {
-                        setEditExId(ex.id);
-                        const parts = ex.options.split(',').map((s) => s.trim());
-                        const opts = [parts[0] || '', parts[1] || '', parts[2] || ''];
-                        let idx = opts.findIndex((x) => x && x.toLowerCase() === ex.correctAnswer.trim().toLowerCase());
-                        if (idx < 0) idx = 0;
-                        setExEdit({ sentence: ex.sentence, opts, correctIdx: idx });
-                      }}
+                      <button onClick={() => startExerciseEdit(ex)}
                         className="p-1 text-gray-400 hover:text-[var(--primary)]" title="Tahrirlash"><Pencil size={14} /></button>
                       <button onClick={() => deleteExercise(ex.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {ex.options.split(',').map((opt, k) => {
-                      const o = opt.trim();
-                      const correct = o.toLowerCase() === ex.correctAnswer.trim().toLowerCase();
-                      return (
-                        <span key={k} className={`px-2.5 py-1 rounded-lg text-xs border ${correct ? 'bg-green-50 border-green-300 text-green-700 font-semibold' : 'bg-white border-gray-200 text-gray-600'}`}>
-                          {o}{correct && ' ✓'}
-                        </span>
-                      );
-                    })}
-                  </div>
+                  {/* Chalg'ituvchi so'zlar */}
+                  {(ex.options || '').trim() !== '' && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[11px] text-gray-400 mr-1">Chalg'ituvchilar:</span>
+                      {ex.options.split(',').map((s) => s.trim()).filter(Boolean).map((o, k) => (
+                        <span key={k} className="px-2.5 py-1 rounded-lg text-xs border bg-white border-gray-200 text-gray-600">{o}</span>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>

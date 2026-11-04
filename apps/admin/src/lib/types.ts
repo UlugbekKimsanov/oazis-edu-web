@@ -109,14 +109,21 @@ export interface Question {
   orderIndex: number;
 }
 
+/** Gapdagi bitta bo'shliq — har birining o'z to'g'ri javobi bor */
+export interface ExerciseBlank {
+  id: number;
+  position: number;        // gapdagi tartibi (0 dan)
+  correctAnswer: string;
+}
+
 export interface Exercise {
   id: number;
   lessonId: number;
   name: string;
   orderIndex: number;
-  sentence: string;
-  options: string;
-  correctAnswer: string;
+  sentence: string;        // bo'shliqlar '_' bilan (bir nechta bo'lishi mumkin)
+  options: string;         // faqat chalg'ituvchi so'zlar, vergul bilan
+  blanks: ExerciseBlank[]; // position bo'yicha tartiblangan
 }
 
 export interface Test {
