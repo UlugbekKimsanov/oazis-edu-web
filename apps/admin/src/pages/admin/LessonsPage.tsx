@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Pencil, Trash2, BookOpen, FileQuestion, Dumbbell, MoreVertical, Search, Clock, PlayCircle, Upload, Image as ImageIcon, Headphones, GripVertical, Check, X, ArrowLeft, SquarePlay } from 'lucide-react';
+import { Plus, Pencil, Trash2, BookOpen, FileQuestion, Dumbbell, MoreVertical, Search, Clock, PlayCircle, Upload, Image as ImageIcon, Headphones, GripVertical, Check, X, ArrowLeft, SquarePlay, Smartphone, ZoomIn, ZoomOut } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import Modal from '../../components/ui/Modal';
+import PhoneFrame from '../../components/ui/PhoneFrame';
+import ExercisePlayPreview from '../../components/ExercisePlayPreview';
 import Button from '../../components/ui/Button';
 import api, { fileUrl } from '../../lib/api';
 import { parseYoutubeId, youtubeUrl } from '../../lib/youtube';
@@ -130,6 +132,9 @@ export default function LessonsPage() {
   const [vocabModal, setVocabModal] = useState(false);
   const [questionsModal, setQuestionsModal] = useState(false);
   const [exercisesModal, setExercisesModal] = useState(false);
+  // Mashqni o'quvchi sifatida sinab ko'rish (mobil o'yin preview)
+  const [playModal, setPlayModal] = useState(false);
+  const [playZoom, setPlayZoom] = useState(0.75);
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [vocabList, setVocabList] = useState<Vocabulary[]>([]);
   const [questionsList, setQuestionsList] = useState<Question[]>([]);
@@ -1022,6 +1027,17 @@ export default function LessonsPage() {
           <ExerciseFormFields form={exForm} onChange={setExForm} setSentence={setExSentence} />
           <Button size="sm" onClick={addExercise} disabled={!exValid(exForm)}><Plus size={14} /> Qo'shish</Button>
         </div>
+        {/* Ro'yxat sarlavhasi + o'quvchi ko'rinishida sinab ko'rish */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="text-xs text-gray-500">
+            Mashqlar: <span className="font-semibold text-gray-700">{exercisesList.length}</span>
+            <span className="hidden sm:inline"> — mobil ilovada hammasi bitta matn bo'lib chiqadi</span>
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => setPlayModal(true)} disabled={exercisesList.length === 0}
+            title="Mobil ilovadagi o'yin bilan bir xil — natija saqlanmaydi">
+            <Smartphone size={14} /> O'quvchi sifatida sinab ko'rish
+          </Button>
+        </div>
         <div className="space-y-2">
           {exercisesList.length === 0 ? <p className="text-sm text-gray-500">Mashqlar yo'q</p> : exercisesList.map((ex) => (
             <div key={ex.id} className="p-3 bg-gray-50 rounded-lg">
@@ -1056,6 +1072,34 @@ export default function LessonsPage() {
               )}
             </div>
           ))}
+        </div>
+      </Modal>
+
+      {/* Mashq — o'quvchi ko'rinishi: mobil ilovadagi o'yin bilan bir xil (sinov, natija saqlanmaydi) */}
+      <Modal open={playModal} onClose={() => setPlayModal(false)} title={`O'quvchi ko'rinishi — ${currentLesson?.name || ''}`} maxWidth="max-w-lg">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <p className="text-xs text-gray-500">Mobil ilovadagi o'yin bilan bir xil. Sinov — natija saqlanmaydi.</p>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPlayZoom((z) => Math.max(0.4, +(z - 0.1).toFixed(2)))}
+              className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600" title="Kichraytirish">
+              <ZoomOut size={16} />
+            </button>
+            <span className="text-sm text-gray-600 w-12 text-center">{Math.round(playZoom * 100)}%</span>
+            <button onClick={() => setPlayZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}
+              className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600" title="Kattalashtirish">
+              <ZoomIn size={16} />
+            </button>
+          </div>
+        </div>
+        {/* iPhone 12 Pro (390 × 844) — zoom butun qurilmani kattalashtiradi */}
+        <div className="overflow-auto" style={{ maxHeight: '64vh' }}>
+          <div style={{ height: 844 * playZoom }} className="flex justify-center">
+            <div style={{ transform: `scale(${playZoom})`, transformOrigin: 'top center' }}>
+              <PhoneFrame>
+                <ExercisePlayPreview exercises={exercisesList} onExit={() => setPlayModal(false)} />
+              </PhoneFrame>
+            </div>
+          </div>
         </div>
       </Modal>
 

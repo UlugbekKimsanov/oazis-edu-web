@@ -13,3 +13,13 @@
     @apply bg-gray-50 text-gray-900 antialiased;
   }
 }
+
+/* Mashq preview: xato bo'shliq silkinadi (mobil: sin(t*4pi)*6px, 420ms) */
+@keyframes oz-shake {
+  0%, 100% { transform: translateX(0); }
+  12.5% { transform: translateX(6px); }
+  37.5% { transform: translateX(-6px); }
+  62.5% { transform: translateX(6px); }
+  87.5% { transform: translateX(-6px); }
+}
+.oz-shake { animation: oz-shake 420ms ease-in-out; }

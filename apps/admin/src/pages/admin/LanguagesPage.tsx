@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Pencil, Image as ImageIcon, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Lock, BookOpen, Zap } from 'lucide-react';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
+import PhoneFrame from '../../components/ui/PhoneFrame';
 import Button from '../../components/ui/Button';
 import Flag from '../../components/ui/Flag';
 import api, { fileUrl } from '../../lib/api';
@@ -272,25 +273,6 @@ export default function LanguagesPage() {
           </div>
         )}
       </Modal>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// iPhone 12 Pro ramka
-// ─────────────────────────────────────────────────────────────
-function PhoneFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="relative rounded-[52px] bg-black shadow-2xl"
-      style={{ width: 390, height: 844, padding: 12 }}
-    >
-      {/* Notch */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 w-36 h-7 bg-black rounded-b-2xl z-30" />
-      {/* Ekran — background va kontent shu ichida joylashadi */}
-      <div className="w-full h-full rounded-[40px] overflow-hidden bg-[#E8F5EE] relative">
-        {children}
-      </div>
     </div>
   );
 }
