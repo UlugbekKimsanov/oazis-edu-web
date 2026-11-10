@@ -6,12 +6,14 @@ import type { Exercise } from '../lib/types';
 // Mashq — o'quvchi ko'rinishi.
 //
 // Mobil ilovadagi `lib/presentation/screens/lesson/exercise_screen.dart`
-// (_FillBlanksGame) bilan AYNAN bir xil mantiq va dizayn:
-//   1. Barcha mashq gaplari bitta matn; har `_` guruhi — bitta bo'shliq.
+// (_FillBlanksGame) bilan AYNAN bir xil mantiq va dizayn (Duolingo kabi):
+//   1. Har mashq — alohida qadam: o'z gapi (`_` = bo'shliq, bir nechta bo'lishi
+//      mumkin) va o'z so'zlar banki (to'g'ri javoblar + chalg'ituvchilar).
 //   2. Bankdan so'z bosiladi → birinchi bo'sh joyga tushadi, keyingisi → keyingi.
 //   3. To'ldirilgan bo'shliqni bossa — so'z bankka qaytadi.
 //   4. Hammasi to'lgach "Tekshirish" → har bo'shliq yashil/qizil, xato bo'lsa
-//      to'g'ri gap ko'rsatiladi. "Yakunlash" → natija (sinovda saqlanmaydi).
+//      to'g'ri gap ko'rsatiladi. "Keyingi" → keyingi mashq; oxirgisida
+//      "Yakunlash" → umumiy natija (sinovda saqlanmaydi).
 //
 // Mobil dizayn o'zgarsa — bu fayl ham yangilanishi shart.
 // ─────────────────────────────────────────────────────────────
@@ -31,55 +33,9 @@ const BLANK_RE = /_+/g;
 
 /** Matn segmenti: oddiy matn yoki bo'shliq (indeks bilan) */
 type Segment = { text: string; blank?: undefined } | { blank: number; text?: undefined };
-/** Matndagi bitta bo'sh joy */
-type BlankRef = { exerciseId: number; correct: string };
 
-/**
- * Barcha mashq gaplarini bitta matnga yig'adi (mobil `_buildText` bilan bir xil):
- * gaplar orderIndex bo'yicha, bo'shliqlar position bo'yicha; ortiqcha `_` matn
- * bo'lib qoladi, `_` yetmasa qolgan bo'shliqlar gap oxiriga qo'shiladi.
- */
-function buildExerciseText(exercises: Exercise[]): { segments: Segment[]; blanks: BlankRef[] } {
-  const segments: Segment[] = [];
-  const blanks: BlankRef[] = [];
-  const sorted = [...exercises].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
-
-  const addBlank = (exerciseId: number, correct: string) => {
-    blanks.push({ exerciseId, correct });
-    segments.push({ blank: blanks.length - 1 });
-  };
-
-  let first = true;
-  for (const ex of sorted) {
-    const sentence = (ex.sentence ?? '').trim();
-    const exBlanks = [...(ex.blanks ?? [])]
-      .map((b) => ({ ...b, correctAnswer: (b.correctAnswer ?? '').trim() }))
-      .filter((b) => b.correctAnswer !== '')
-      .sort((a, b) => a.position - b.position);
-    if (sentence === '' || exBlanks.length === 0) continue;
-
-    // Gaplar orasida bo'sh joy
-    if (!first) segments.push({ text: '  ' });
-    first = false;
-
-    let cursor = 0;
-    let bi = 0;
-    for (const m of sentence.matchAll(BLANK_RE)) {
-      if (bi >= exBlanks.length) break; // ortiqcha '_' — matn bo'lib qoladi
-      const start = m.index ?? 0;
-      if (start > cursor) segments.push({ text: sentence.slice(cursor, start) });
-      addBlank(ex.id, exBlanks[bi++].correctAnswer);
-      cursor = start + m[0].length;
-    }
-    if (cursor < sentence.length) segments.push({ text: sentence.slice(cursor) });
-    // '_' yetarli bo'lmasa — qolgan bo'shliqlar gap oxirida
-    while (bi < exBlanks.length) {
-      segments.push({ text: ' ' });
-      addBlank(ex.id, exBlanks[bi++].correctAnswer);
-    }
-  }
-  return { segments, blanks };
-}
+/** Bitta mashq (qadam): gap segmentlari, bo'shliqlarning to'g'ri javoblari, so'zlar banki */
+type Task = { exerciseId: number; segments: Segment[]; answers: string[]; bank: string[] };
 
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -89,25 +45,65 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-/** So'zlar banki (mobil `_buildBank`): to'g'ri javoblar + chalg'ituvchilar (takrorsiz), aralash */
-function buildWordBank(blanks: BlankRef[], exercises: Exercise[]): string[] {
-  const words = blanks.map((b) => b.correct);
-  const seen = new Set(words.map((w) => w.toLowerCase()));
+/**
+ * Bitta mashqni qadamga aylantiradi (mobil `_buildTask` bilan bir xil):
+ * bo'shliqlar position bo'yicha; ortiqcha `_` matn bo'lib qoladi, `_` yetmasa
+ * qolgan bo'shliqlar gap oxiriga qo'shiladi. Bo'shliqsiz mashq — null (o'tkazib yuboriladi).
+ */
+function buildTask(ex: Exercise): Task | null {
+  const sentence = (ex.sentence ?? '').trim();
+  const blanks = [...(ex.blanks ?? [])]
+    .map((b) => ({ ...b, correctAnswer: (b.correctAnswer ?? '').trim() }))
+    .filter((b) => b.correctAnswer !== '')
+    .sort((a, b) => a.position - b.position);
+  if (sentence === '' || blanks.length === 0) return null;
+
+  const segments: Segment[] = [];
+  const answers: string[] = [];
+  const addBlank = (correct: string) => {
+    answers.push(correct);
+    segments.push({ blank: answers.length - 1 });
+  };
+
+  let cursor = 0;
+  let bi = 0;
+  for (const m of sentence.matchAll(BLANK_RE)) {
+    if (bi >= blanks.length) break; // ortiqcha '_' — matn bo'lib qoladi
+    const start = m.index ?? 0;
+    if (start > cursor) segments.push({ text: sentence.slice(cursor, start) });
+    addBlank(blanks[bi++].correctAnswer);
+    cursor = start + m[0].length;
+  }
+  if (cursor < sentence.length) segments.push({ text: sentence.slice(cursor) });
+  while (bi < blanks.length) {
+    segments.push({ text: ' ' });
+    addBlank(blanks[bi++].correctAnswer);
+  }
+
+  // So'zlar banki: to'g'ri javoblar + chalg'ituvchilar (takrorsiz), aralash
+  const seen = new Set(answers.map((w) => w.toLowerCase()));
   const distractors: string[] = [];
-  for (const ex of exercises) {
-    for (const raw of (ex.options ?? '').split(',')) {
-      const opt = raw.trim();
-      if (opt === '') continue;
-      const key = opt.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      distractors.push(opt);
-    }
+  for (const raw of (ex.options ?? '').split(',')) {
+    const opt = raw.trim();
+    if (opt === '') continue;
+    const key = opt.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distractors.push(opt);
   }
   shuffle(distractors);
-  // Bank juda uzun bo'lib ketmasligi uchun chalg'ituvchilar cheklanadi
-  const limit = Math.max(3, blanks.length);
-  return shuffle([...words, ...distractors.slice(0, limit)]);
+  const limit = Math.max(3, answers.length);
+  const bank = shuffle([...answers, ...distractors.slice(0, limit)]);
+
+  return { exerciseId: ex.id, segments, answers, bank };
+}
+
+/** Barcha mashqlar — orderIndex tartibida qadamlar */
+function buildTasks(exercises: Exercise[]): Task[] {
+  return [...exercises]
+    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+    .map(buildTask)
+    .filter((t): t is Task => t !== null);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -118,50 +114,69 @@ interface Props {
   onExit?: () => void;
 }
 
-/** 390×844 ekran ichida ishlaydigan o'yin + yakuniy natija */
+/** 390×844 ekran ichida ishlaydigan o'yin: mashqlar birma-bir, oxirida umumiy natija */
 export default function ExercisePlayPreview({ exercises, onExit }: Props) {
+  const tasks = useMemo(() => buildTasks(exercises), [exercises]);
   const [attempt, setAttempt] = useState(0);
-  const [finished, setFinished] = useState<{ correct: number; total: number } | null>(null);
+  const [taskIndex, setTaskIndex] = useState(0);
+  /** Tugallangan qadamlar natijasi */
+  const [done, setDone] = useState<{ correct: number; total: number }[]>([]);
 
-  if (finished) {
+  const restart = () => {
+    setDone([]);
+    setTaskIndex(0);
+    setAttempt((a) => a + 1);
+  };
+
+  if (tasks.length === 0) {
     return (
-      <ResultScreen
-        correct={finished.correct}
-        total={finished.total}
-        onRetry={() => { setFinished(null); setAttempt((a) => a + 1); }}
-        onExit={onExit}
-      />
+      <Screen onBack={onExit}>
+        <div className="flex-1 flex items-center justify-center px-6 text-center" style={{ color: C.muted, fontSize: 14 }}>
+          Bu darsda mashq yo'q
+        </div>
+      </Screen>
     );
   }
-  // key — qayta urinishda o'yin noldan quriladi (mobil ValueKey kabi)
+
+  if (done.length >= tasks.length) {
+    const correct = done.reduce((s, d) => s + d.correct, 0);
+    const total = done.reduce((s, d) => s + d.total, 0);
+    return <ResultScreen correct={correct} total={total} onRetry={restart} onExit={onExit} />;
+  }
+
+  // key — har qadam (va qayta urinish) noldan quriladi (mobil ValueKey kabi)
   return (
-    <FillBlanksGame
-      key={attempt}
-      exercises={exercises}
+    <TaskGame
+      key={`${attempt}-${taskIndex}`}
+      task={tasks[taskIndex]}
+      index={taskIndex}
+      count={tasks.length}
       onBack={onExit}
-      onFinish={(correct, total) => setFinished({ correct, total })}
+      onDone={(correct, total) => {
+        setDone((d) => [...d, { correct, total }]);
+        setTaskIndex((i) => i + 1);
+      }}
     />
   );
 }
 
-// ── O'yin ────────────────────────────────────────────────────
+// ── Bitta qadam (mashq) ──────────────────────────────────────
 
-function FillBlanksGame({ exercises, onBack, onFinish }: {
-  exercises: Exercise[];
+function TaskGame({ task, index, count, onBack, onDone }: {
+  task: Task;
+  index: number;
+  count: number;
   onBack?: () => void;
-  onFinish: (correct: number, total: number) => void;
+  onDone: (correct: number, total: number) => void;
 }) {
-  const { segments, blanks, bank } = useMemo(() => {
-    const t = buildExerciseText(exercises);
-    return { ...t, bank: buildWordBank(t.blanks, exercises) };
-  }, [exercises]);
+  const { segments, answers, bank } = task;
 
   /** blank indeksi → bankdagi chip indeksi */
   const [placed, setPlaced] = useState<Record<number, number>>({});
   /** "Tekshirish" bosilganmi */
   const [checked, setChecked] = useState(false);
 
-  const total = blanks.length;
+  const total = answers.length;
   const placedCount = Object.keys(placed).length;
   const usedChips = new Set(Object.values(placed));
   const activeBlank = (() => {
@@ -172,11 +187,12 @@ function FillBlanksGame({ exercises, onBack, onFinish }: {
   const wordAt = (i: number) => (placed[i] === undefined ? null : bank[placed[i]]);
   const isCorrect = (i: number) => {
     const w = wordAt(i);
-    return w != null && w.toLowerCase() === blanks[i].correct.toLowerCase();
+    return w != null && w.toLowerCase() === answers[i].toLowerCase();
   };
   let correctCount = 0;
   for (let i = 0; i < total; i++) if (isCorrect(i)) correctCount++;
   const allCorrect = correctCount === total;
+  const isLast = index + 1 >= count;
 
   const tapChip = (chip: number) => {
     if (checked || usedChips.has(chip) || activeBlank == null) return;
@@ -187,20 +203,11 @@ function FillBlanksGame({ exercises, onBack, onFinish }: {
     setPlaced((p) => { const n = { ...p }; delete n[i]; return n; });
   };
   const check = () => { if (allFilled && !checked) setChecked(true); };
-  const finish = () => onFinish(correctCount, total);
+  const next = () => onDone(correctCount, total);
 
-  const progress = total === 0 ? 0 : (checked ? correctCount : placedCount) / total;
+  // Umumiy progress — tugallangan mashqlar (tekshirilgani ham hisobga kiradi)
+  const progress = (index + (checked ? 1 : 0)) / count;
   const barColor = checked && !allCorrect ? C.error : C.primary;
-
-  if (total === 0) {
-    return (
-      <Screen onBack={onBack}>
-        <div className="flex-1 flex items-center justify-center px-6 text-center" style={{ color: C.muted, fontSize: 14 }}>
-          Bu darsda mashq yo'q
-        </div>
-      </Screen>
-    );
-  }
 
   return (
     <Screen onBack={onBack}>
@@ -209,8 +216,11 @@ function FillBlanksGame({ exercises, onBack, onFinish }: {
         <div style={{ height: 8, borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${progress * 100}%`, background: barColor, transition: 'width 280ms ease-out, background 200ms' }} />
         </div>
-        <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: checked ? (allCorrect ? C.deep : C.error) : C.muted }}>
-          {checked ? `${correctCount} / ${total} to'g'ri` : `${placedCount} / ${total} to'ldirildi`}
+        <div className="flex justify-between" style={{ marginTop: 6, fontSize: 11, fontWeight: 600 }}>
+          <span style={{ color: C.muted }}>Mashq {index + 1} / {count}</span>
+          <span style={{ color: checked ? (allCorrect ? C.deep : C.error) : C.muted }}>
+            {checked ? `${correctCount} / ${total} to'g'ri` : `${placedCount} / ${total} to'ldirildi`}
+          </span>
         </div>
       </div>
 
@@ -246,7 +256,7 @@ function FillBlanksGame({ exercises, onBack, onFinish }: {
         boxShadow: '0 -3px 16px rgba(0,0,0,0.07)',
       }}>
         {checked ? (
-          <ResultPanel ok={allCorrect} correctCount={correctCount} total={total} segments={segments} blanks={blanks} />
+          <ResultPanel ok={allCorrect} correctCount={correctCount} total={total} segments={segments} answers={answers} />
         ) : (
           <>
             <div style={{ fontSize: 12, fontWeight: 700, color: allFilled ? C.deep : C.muted }}>
@@ -262,14 +272,14 @@ function FillBlanksGame({ exercises, onBack, onFinish }: {
         <button
           type="button"
           disabled={!allFilled}
-          onClick={checked ? finish : check}
+          onClick={checked ? next : check}
           style={{
             marginTop: 14, width: '100%', height: 52, borderRadius: 14, border: 'none',
             background: !allFilled ? 'rgba(46,158,110,0.35)' : (checked && !allCorrect ? C.error : C.primary),
             color: '#fff', fontSize: 15, fontWeight: 700, cursor: allFilled ? 'pointer' : 'default',
           }}
         >
-          {checked ? 'Yakunlash' : 'Tekshirish'}
+          {!checked ? 'Tekshirish' : isLast ? 'Yakunlash' : 'Keyingi'}
         </button>
       </div>
     </Screen>
@@ -374,28 +384,27 @@ function WordChip({ word, used, onTap }: { word: string; used: boolean; onTap: (
 
 // ── Tekshirishdan keyingi panel ──────────────────────────────
 
-function ResultPanel({ ok, correctCount, total, segments, blanks }: {
-  ok: boolean; correctCount: number; total: number; segments: Segment[]; blanks: BlankRef[];
+function ResultPanel({ ok, correctCount, total, segments, answers }: {
+  ok: boolean; correctCount: number; total: number; segments: Segment[]; answers: string[];
 }) {
   const color = ok ? C.deep : C.error;
+  const title = ok ? "To'g'ri!" : total === 1 ? "Noto'g'ri" : `${correctCount} / ${total} to'g'ri`;
   return (
     <div style={{ padding: 14, borderRadius: 14, background: ok ? C.bg : C.errorBg }}>
       <div className="flex items-center" style={{ gap: 8 }}>
         {ok ? <CircleCheck size={20} color={color} /> : <CircleX size={20} color={color} />}
-        <div style={{ fontSize: 15, fontWeight: 800, color }}>
-          {ok ? "Barakalla! Hammasi to'g'ri" : `${correctCount} / ${total} to'g'ri`}
-        </div>
+        <div style={{ fontSize: 15, fontWeight: 800, color }}>{title}</div>
       </div>
       {!ok && (
         <>
           <div style={{ marginTop: 10, fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color }}>TO'G'RI JAVOB</div>
-          {/* To'liq to'g'ri matn — to'g'ri so'zlar ajratib ko'rsatiladi */}
-          <p style={{ marginTop: 4, fontSize: 14, fontWeight: 500, color: C.ink, lineHeight: 1.5, whiteSpace: 'pre-wrap', margin: '4px 0 0' }}>
+          {/* To'liq to'g'ri gap — to'g'ri so'zlar ajratib ko'rsatiladi */}
+          <p style={{ fontSize: 14, fontWeight: 500, color: C.ink, lineHeight: 1.5, whiteSpace: 'pre-wrap', margin: '4px 0 0' }}>
             {segments.map((seg, k) => seg.blank === undefined
               ? <span key={k}>{seg.text}</span>
               : (
                 <span key={k} style={{ fontWeight: 800, color: C.deep, textDecoration: 'underline', textDecorationColor: C.primary }}>
-                  {blanks[seg.blank].correct}
+                  {answers[seg.blank]}
                 </span>
               ))}
           </p>

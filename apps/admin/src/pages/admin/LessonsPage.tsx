@@ -1050,7 +1050,7 @@ export default function LessonsPage() {
         <div className="flex items-center justify-between gap-2 mb-2">
           <p className="text-xs text-gray-500">
             Mashqlar: <span className="font-semibold text-gray-700">{exercisesList.length}</span>
-            <span className="hidden sm:inline"> — mobil ilovada hammasi bitta matn bo'lib chiqadi</span>
+            <span className="hidden sm:inline"> — mobil ilovada birma-bir chiqadi (har mashq alohida qadam)</span>
           </p>
           <Button size="sm" variant="secondary" onClick={() => openPlay(exercisesList)} disabled={exercisesList.length === 0}
             title="Mobil ilovadagi o'yin bilan bir xil — natija saqlanmaydi">
@@ -1103,8 +1103,8 @@ export default function LessonsPage() {
         <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
           <p className="text-xs text-gray-500">
             {playExercises.length === 1
-              ? "Faqat shu mashq. Mobil ilovada darsning barcha mashqlari bitta matnda chiqadi. Sinov — natija saqlanmaydi."
-              : "Mobil ilovadagi o'yin bilan bir xil. Sinov — natija saqlanmaydi."}
+              ? "Faqat shu mashq — mobil ilovadagi bitta qadam. Sinov — natija saqlanmaydi."
+              : "Mobil ilovadagi o'yin bilan bir xil: mashqlar birma-bir. Sinov — natija saqlanmaydi."}
           </p>
           <div className="flex items-center gap-2">
             <button onClick={() => setPlayZoom((z) => Math.max(0.4, +(z - 0.1).toFixed(2)))}
