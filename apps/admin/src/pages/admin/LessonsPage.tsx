@@ -135,6 +135,9 @@ export default function LessonsPage() {
   // Mashqni o'quvchi sifatida sinab ko'rish (mobil o'yin preview)
   const [playModal, setPlayModal] = useState(false);
   const [playZoom, setPlayZoom] = useState(0.75);
+  /** O'ynaladigan mashqlar: butun dars (mobil kabi bitta matn) yoki bitta mashq alohida */
+  const [playExercises, setPlayExercises] = useState<Exercise[]>([]);
+  const openPlay = (list: Exercise[]) => { setPlayExercises(list); setPlayModal(true); };
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [vocabList, setVocabList] = useState<Vocabulary[]>([]);
   const [questionsList, setQuestionsList] = useState<Question[]>([]);
@@ -1033,7 +1036,7 @@ export default function LessonsPage() {
             Mashqlar: <span className="font-semibold text-gray-700">{exercisesList.length}</span>
             <span className="hidden sm:inline"> — mobil ilovada hammasi bitta matn bo'lib chiqadi</span>
           </p>
-          <Button size="sm" variant="secondary" onClick={() => setPlayModal(true)} disabled={exercisesList.length === 0}
+          <Button size="sm" variant="secondary" onClick={() => openPlay(exercisesList)} disabled={exercisesList.length === 0}
             title="Mobil ilovadagi o'yin bilan bir xil — natija saqlanmaydi">
             <Smartphone size={14} /> O'quvchi sifatida sinab ko'rish
           </Button>
@@ -1054,6 +1057,8 @@ export default function LessonsPage() {
                   <div className="flex justify-between gap-2">
                     <ExerciseSentencePreview ex={ex} />
                     <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => openPlay([ex])}
+                        className="p-1 text-gray-400 hover:text-[var(--primary)]" title="Shu mashqni o'quvchi sifatida sinab ko'rish"><Smartphone size={14} /></button>
                       <button onClick={() => startExerciseEdit(ex)}
                         className="p-1 text-gray-400 hover:text-[var(--primary)]" title="Tahrirlash"><Pencil size={14} /></button>
                       <button onClick={() => deleteExercise(ex.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
@@ -1076,9 +1081,15 @@ export default function LessonsPage() {
       </Modal>
 
       {/* Mashq — o'quvchi ko'rinishi: mobil ilovadagi o'yin bilan bir xil (sinov, natija saqlanmaydi) */}
-      <Modal open={playModal} onClose={() => setPlayModal(false)} title={`O'quvchi ko'rinishi — ${currentLesson?.name || ''}`} maxWidth="max-w-lg">
+      <Modal open={playModal} onClose={() => setPlayModal(false)} title={playExercises.length === 1
+          ? `O'quvchi ko'rinishi — ${playExercises[0].orderIndex}-mashq`
+          : `O'quvchi ko'rinishi — ${currentLesson?.name || ''}`} maxWidth="max-w-lg">
         <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-          <p className="text-xs text-gray-500">Mobil ilovadagi o'yin bilan bir xil. Sinov — natija saqlanmaydi.</p>
+          <p className="text-xs text-gray-500">
+            {playExercises.length === 1
+              ? "Faqat shu mashq. Mobil ilovada darsning barcha mashqlari bitta matnda chiqadi. Sinov — natija saqlanmaydi."
+              : "Mobil ilovadagi o'yin bilan bir xil. Sinov — natija saqlanmaydi."}
+          </p>
           <div className="flex items-center gap-2">
             <button onClick={() => setPlayZoom((z) => Math.max(0.4, +(z - 0.1).toFixed(2)))}
               className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600" title="Kichraytirish">
@@ -1096,7 +1107,7 @@ export default function LessonsPage() {
           <div style={{ height: 844 * playZoom }} className="flex justify-center">
             <div style={{ transform: `scale(${playZoom})`, transformOrigin: 'top center' }}>
               <PhoneFrame>
-                <ExercisePlayPreview exercises={exercisesList} onExit={() => setPlayModal(false)} />
+                <ExercisePlayPreview exercises={playExercises} onExit={() => setPlayModal(false)} />
               </PhoneFrame>
             </div>
           </div>
