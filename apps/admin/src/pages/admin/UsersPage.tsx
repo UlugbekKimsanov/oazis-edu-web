@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useRememberedSearch } from '../../hooks/useRememberedSearch';
 import { Plus, Pencil, Trash2, ArrowLeft, X, GraduationCap } from 'lucide-react';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
 import api from '../../lib/api';
 import type { User, Language, Course } from '../../lib/types';
+
+/** URL'da eslab qolinadigan parametrlar (yon menyudan qaytganda tiklanadi) */
+const USERS_PARAMS = ['courseId', 'courseName'] as const;
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -20,6 +24,7 @@ export default function UsersPage() {
   // Kurs bo'yicha filter (Kurslar sahifasidan "N o'quvchi" bosilganda yoki shu yerdagi dropdown'dan)
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  useRememberedSearch(USERS_PARAMS);
   const courseId = Number(searchParams.get('courseId')) || 0;
   const courseName = searchParams.get('courseName') || '';
 

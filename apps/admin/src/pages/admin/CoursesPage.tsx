@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useRememberedSearch } from '../../hooks/useRememberedSearch';
 import { Plus, Pencil, Trash2, Users, BookOpen, ArrowLeft, Filter, GripVertical, Search } from 'lucide-react';
 import {
   DndContext,
@@ -22,11 +23,13 @@ import Flag from '../../components/ui/Flag';
 import api, { fileUrl } from '../../lib/api';
 import type { Course, Language, User } from '../../lib/types';
 
+/** URL'da eslab qolinadigan parametrlar (yon menyudan qaytganda tiklanadi) */
+const COURSES_PARAMS = ['languageId', 'q'] as const;
+
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [languages, setLanguages] = useState<Language[]>([]);
   const [teachers, setTeachers] = useState<User[]>([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [teacherModalOpen, setTeacherModalOpen] = useState(false);
@@ -39,16 +42,32 @@ export default function CoursesPage() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const langFilter = Number(searchParams.get('languageId')) || 0;
+  const [searchParams, setSearchParams] = useSearchParams();
+  useRememberedSearch(COURSES_PARAMS);
 
-  // Til bo'yicha multiselect filter (URL'dan kelgan til bilan boshlanadi)
-  const [selectedLangs, setSelectedLangs] = useState<number[]>(langFilter ? [langFilter] : []);
+  // Til filtri (multiselect, `languageId=1,2`) va qidiruv (`q`) URL'da saqlanadi —
+  // refresh, orqaga va sahifalar aro o'tishda yo'qolmaydi
+  const selectedLangs = useMemo(
+    () => (searchParams.get('languageId') || '').split(',').map(Number).filter((n) => n > 0),
+    [searchParams],
+  );
+  const search = searchParams.get('q') || '';
+  const patchParams = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v) next.set(k, v); else next.delete(k);
+    }
+    setSearchParams(next, { replace: true });
+  };
+  const setSelectedLangs = (ids: number[]) => patchParams({ languageId: ids.join(',') || null });
+  const setSearch = (q: string) => patchParams({ q: q || null });
+  // Bitta til tanlangan bo'lsa — sarlavha va yangi kurs uchun standart til shu bo'ladi
+  const langFilter = selectedLangs.length === 1 ? selectedLangs[0] : 0;
 
 
   const langById = (id: number) => languages.find((l) => l.id === id);
   const toggleLang = (id: number) =>
-    setSelectedLangs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelectedLangs(selectedLangs.includes(id) ? selectedLangs.filter((x) => x !== id) : [...selectedLangs, id]);
 
   const fetchAll = async () => {
     try {

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './stores/auth-store';
 import DashboardLayout from './components/layout/DashboardLayout';
 import LoginPage from './pages/auth/LoginPage';
@@ -34,8 +34,12 @@ function RouteFallback() {
 
 function ProtectedRoute({ children, allowedRole }: { children: React.ReactNode; allowedRole: 'ADMIN' | 'TEACHER' }) {
   const { isAuthenticated, role } = useAuthStore();
+  const location = useLocation();
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  // Login'dan keyin aynan shu sahifaga qaytish uchun manzil uzatiladi
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  }
   if (role !== allowedRole) return <Navigate to={role === 'ADMIN' ? '/admin' : '/teacher'} replace />;
 
   return <>{children}</>;

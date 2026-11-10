@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useRememberedSearch } from '../../hooks/useRememberedSearch';
 import { Plus, Pencil, Trash2, BookOpen, FileQuestion, Dumbbell, MoreVertical, Search, Clock, PlayCircle, Upload, Image as ImageIcon, Headphones, GripVertical, Check, X, ArrowLeft, SquarePlay, Smartphone, ZoomIn, ZoomOut } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
@@ -11,6 +12,9 @@ import Button from '../../components/ui/Button';
 import api, { fileUrl } from '../../lib/api';
 import { parseYoutubeId, youtubeUrl } from '../../lib/youtube';
 import type { Course, Language, Lesson, Vocabulary, Question, Exercise, Audiobook } from '../../lib/types';
+
+/** URL'da eslab qolinadigan parametrlar (yon menyudan qaytganda tiklanadi) */
+const LESSONS_PARAMS = ['courseId'] as const;
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]';
 
@@ -109,7 +113,6 @@ export default function LessonsPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [languages, setLanguages] = useState<Language[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [menuId, setMenuId] = useState<number | null>(null);
@@ -153,7 +156,6 @@ export default function LessonsPage() {
   const [audioUploading, setAudioUploading] = useState(false);
 
   // Dars tafsiloti (video play + modul tugmalari)
-  const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
 
   // Inline qo'shish formalari
   const [vocabForm, setVocabForm] = useState({ uz: '', target: '' });
@@ -172,8 +174,26 @@ export default function LessonsPage() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  useRememberedSearch(LESSONS_PARAMS);
   const requestedCourseId = Number(searchParams.get('courseId')) || 0;
+  const requestedLessonId = Number(searchParams.get('lessonId')) || 0;
+
+  // Tanlangan kurs — URL'dan (yo'q yoki noto'g'ri bo'lsa birinchi kurs).
+  // Holat URL'da bo'lgani uchun refresh, orqaga/oldinga va sahifalar aro o'tish joyni yo'qotmaydi.
+  const selectedCourse = courses.length === 0
+    ? 0
+    : (requestedCourseId && courses.some((c) => c.id === requestedCourseId) ? requestedCourseId : courses[0].id);
+
+  // Ochilgan dars ("watch" ko'rinishi) — URL'dagi lessonId bo'yicha
+  const detailLesson = lessons.find((l) => l.id === requestedLessonId) ?? null;
+  const setDetailLesson = (lesson: Lesson | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (lesson) next.set('lessonId', String(lesson.id)); else next.delete('lessonId');
+    if (selectedCourse) next.set('courseId', String(selectedCourse));
+    // O'sha dars qayta o'rnatilsa (saqlashdan keyin yangilash) tarixga yozilmaydi
+    setSearchParams(next, { replace: next.get('lessonId') === searchParams.get('lessonId') });
+  };
 
   const fetchLessons = async (): Promise<Lesson[]> => {
     if (!selectedCourse) return [];
@@ -197,6 +217,7 @@ export default function LessonsPage() {
     return () => window.removeEventListener('click', h);
   }, []);
 
+  // Tillar va kurslar — bir marta; tanlangan kurs URL'dan hisoblanadi (yuqorida)
   useEffect(() => {
     let active = true;
     api.get('/admin/languages')
@@ -209,25 +230,17 @@ export default function LessonsPage() {
         if (!active) return;
         const data: Course[] = res.data.data ?? res.data ?? [];
         setCourses(data);
-        if (requestedCourseId && data.some((course) => course.id === requestedCourseId)) {
-          setSelectedCourse(requestedCourseId);
-        } else if (data.length > 0) {
-          setSelectedCourse(data[0].id);
-        } else {
-          setSelectedCourse(0);
-          setLoading(false);
-        }
+        if (data.length === 0) setLoading(false);
       })
       .catch(() => {
         if (!active) return;
         setCourses([]);
-        setSelectedCourse(0);
         setLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [requestedCourseId]);
+  }, []);
 
   useEffect(() => {
     if (!selectedCourse) return;
@@ -723,7 +736,10 @@ export default function LessonsPage() {
             value={selectedCourse}
             onChange={(e) => {
               setLoading(true);
-              setSelectedCourse(Number(e.target.value));
+              const next = new URLSearchParams(searchParams);
+              next.set('courseId', e.target.value);
+              next.delete('lessonId');
+              setSearchParams(next, { replace: true });
             }}
             className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
           >

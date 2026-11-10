@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth-store';
 import api from '../../lib/api';
 
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +43,10 @@ export default function LoginPage() {
       };
 
       login(data.token, user, rememberMe);
-      navigate(role === 'ADMIN' ? '/admin' : '/teacher');
+      // Kirishdan oldin so'ralgan sahifa bo'lsa (masalan, sessiya tugab /login'ga tushgan) — o'shanga qaytamiz
+      const home = role === 'ADMIN' ? '/admin' : '/teacher';
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from && from.startsWith(home) ? from : home, { replace: true });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || "Email yoki parol noto'g'ri");
