@@ -54,6 +54,10 @@ export function Footer({
 
         <div className="mt-10 border-t border-white/10 pt-6 text-center text-sm text-white/60">
           {footer.company}
+          <div className="mt-2 flex justify-center gap-4">
+            <a href="/privacy/" className="hover:text-white">Maxfiylik siyosati</a>
+            <a href="/delete-account/" className="hover:text-white">Akkauntni o'chirish</a>
+          </div>
         </div>
       </Container>
     </footer>
