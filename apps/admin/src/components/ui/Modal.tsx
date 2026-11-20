@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
+import { useUiStore } from '../../stores/ui-store';
 
 interface Props {
   open: boolean;
@@ -34,6 +35,8 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'max-
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || closeDisabledRef.current) return;
+      // Tasdiqlash oynasi ochiq bo'lsa Esc faqat uni yopadi — ostidagi modal joyida qoladi
+      if (useUiStore.getState().confirmState) return;
       // Faqat eng ustki modal yopiladi
       const dialogs = document.querySelectorAll('[data-modal-panel]');
       if (dialogs[dialogs.length - 1] === panelRef.current) onCloseRef.current();

@@ -68,7 +68,7 @@ export default function Feedback() {
               <div className="min-w-0">
                 <h2 id="confirm-title" className="text-base font-semibold text-gray-900">{confirmState.title}</h2>
                 {confirmState.message && (
-                  <p className="mt-1 break-words text-sm text-gray-500">{confirmState.message}</p>
+                  <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-500">{confirmState.message}</p>
                 )}
               </div>
             </div>

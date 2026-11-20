@@ -154,9 +154,9 @@ export default function AdminDashboard() {
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {stats ? (
               <>
-                <StatsCard title="Jami o'quvchilar" value={formatNumber(stats.totalStudents)} icon={Users} from="#2E9E6E" onClick={() => navigate('/admin/users')} />
+                <StatsCard title="Jami o'quvchilar" value={formatNumber(stats.totalStudents)} icon={Users} from="#2E9E6E" onClick={() => navigate('/admin/users?role=STUDENT')} />
                 <StatsCard title="Bugun faol" value={formatNumber(stats.activeStudentsToday)} icon={Activity} from="#10B981" hint="Bugun dars qilgan o'quvchilar" />
-                <StatsCard title="Ustozlar" value={formatNumber(stats.totalTeachers)} icon={GraduationCap} from="#6366F1" onClick={() => navigate('/admin/users')} />
+                <StatsCard title="O'qituvchilar" value={formatNumber(stats.totalTeachers)} icon={GraduationCap} from="#6366F1" onClick={() => navigate('/admin/users?role=TEACHER')} />
                 <StatsCard title="Jami daromad" value={formatMoney(stats.revenue)} icon={TrendingUp} from="#F97316" hint="Kurs va kitob to'lovlari" onClick={() => navigate('/admin/income')} />
               </>
             ) : (
