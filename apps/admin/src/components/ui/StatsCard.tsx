@@ -1,36 +1,52 @@
 import type { LucideIcon } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 
 interface Props {
   title: string;
   value: string | number;
   icon: LucideIcon;
-  /** Gradient boshlanish/tugash ranglari */
+  /** Ikonka rangi (urg'u). `to` eski gradient uchun qoldirilgan — ishlatilmaydi. */
   from?: string;
   to?: string;
+  /** Qiymat ostidagi qo'shimcha izoh */
+  hint?: string;
   onClick?: () => void;
 }
 
-export default function StatsCard({ title, value, icon: Icon, from = '#2E9E6E', to = '#1F7A55', onClick }: Props) {
-  return (
-    <div
-      onClick={onClick}
-      className={
-        'relative overflow-hidden rounded-2xl p-5 text-white shadow-lg transition-transform ' +
-        (onClick ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-xl' : '')
-      }
-      style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
-    >
-      {/* Dekorativ doiralar */}
-      <div className="absolute -top-8 -right-8 w-28 h-28 rounded-full bg-white/10" />
-      <div className="absolute -bottom-10 -right-2 w-20 h-20 rounded-full bg-white/10" />
-
-      <div className="relative">
-        <div className="w-11 h-11 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4">
-          <Icon size={22} className="text-white" />
+/**
+ * Statistik karta: oq fon, rangli ikonka. Bosiladigan bo'lsa — haqiqiy tugma
+ * (klaviatura va ekran o'quvchi uchun).
+ */
+export default function StatsCard({ title, value, icon: Icon, from = '#2E9E6E', hint, onClick }: Props) {
+  const body = (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+          style={{ backgroundColor: `${from}1A`, color: from }}
+        >
+          <Icon size={22} />
         </div>
-        <p className="text-2xl font-extrabold tracking-tight">{value}</p>
-        <p className="text-sm text-white/85 mt-1 font-medium">{title}</p>
+        {onClick && <ChevronRight size={16} className="mt-1 text-gray-300 transition-colors group-hover:text-gray-500" />}
       </div>
-    </div>
+      <p className="mt-4 text-2xl font-bold tracking-tight text-gray-900">{value}</p>
+      <p className="mt-0.5 text-sm font-medium text-gray-500">{title}</p>
+      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+    </>
   );
+
+  const base = 'rounded-xl border border-gray-200 bg-white p-5 text-left';
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`group w-full ${base} transition-shadow hover:border-gray-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40`}
+      >
+        {body}
+      </button>
+    );
+  }
+  return <div className={base}>{body}</div>;
 }
