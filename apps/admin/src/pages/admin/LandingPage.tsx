@@ -1,4 +1,14 @@
-import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import {
   Plus,
@@ -18,6 +28,9 @@ import {
   PlayCircle,
   Phone,
   Menu,
+  Undo2,
+  AlertTriangle,
+  Info,
   // Icon-picker uchun (iconMap):
   GraduationCap,
   ClipboardCheck,
@@ -58,9 +71,13 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useNavigate } from 'react-router-dom';
 import Button from '../../components/ui/Button';
-import Modal from '../../components/ui/Modal';
+import PageHeader from '../../components/ui/PageHeader';
+import { ErrorState, LoadingState } from '../../components/ui/States';
 import api, { API_ORIGIN, fileUrl } from '../../lib/api';
+import { apiErrorMessage } from '../../lib/errors';
+import { confirmDialog, toast, useUiStore } from '../../stores/ui-store';
 import {
   LANDING_ICON_NAMES,
   UnsupportedLandingSchemaError,
@@ -104,7 +121,7 @@ async function requestLandingContent(signal?: AbortSignal): Promise<LandingConte
 
 function landingLoadError(error: unknown): string {
   if (error instanceof UnsupportedLandingSchemaError) return error.message;
-  return "Kontentni yuklab bo'lmadi.";
+  return apiErrorMessage(error, "Landing kontentini yuklab bo'lmadi.");
 }
 
 function shortApiError(error: unknown, fallback: string): string {
@@ -112,19 +129,28 @@ function shortApiError(error: unknown, fallback: string): string {
 
   const candidate = error as {
     message?: unknown;
-    response?: { data?: unknown };
+    response?: { status?: number; data?: unknown };
   };
   const responseData = candidate.response?.data;
   let message: unknown;
   if (typeof responseData === 'string') {
-    message = responseData;
+    // Nginx (masalan 413) HTML sahifa qaytaradi — uni adminga ko'rsatmaymiz.
+    if (!responseData.trimStart().startsWith('<')) message = responseData;
   } else if (responseData !== null && typeof responseData === 'object') {
     const body = responseData as { message?: unknown; error?: unknown };
     message = body.message ?? body.error;
   }
-  message ??= candidate.message;
 
-  if (typeof message !== 'string' || !message.trim()) return fallback;
+  if (typeof message !== 'string' || !message.trim()) {
+    if (candidate.response?.status === 413) {
+      return 'Fayl hajmi server ruxsat etgan chegaradan katta.';
+    }
+    // Tarmoq / timeout / 5xx — umumiy o'zbekcha matn; o'zimiz tashlagan Error — o'z matni.
+    if (candidate.response || 'code' in candidate) return apiErrorMessage(error, fallback);
+    return typeof candidate.message === 'string' && candidate.message.trim()
+      ? candidate.message.trim()
+      : fallback;
+  }
   const compact = message.trim().replace(/\s+/g, ' ');
   return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
 }
@@ -137,8 +163,12 @@ function validateLandingImage(file: File): string | null {
   ) {
     return 'Faqat JPG, PNG yoki WebP rasm yuklash mumkin.';
   }
+  if (file.size === 0) {
+    return "Bo'sh faylni yuklab bo'lmaydi.";
+  }
   if (file.size > MAX_LANDING_IMAGE_BYTES) {
-    return "Rasm hajmi 5 MiB dan oshmasligi kerak.";
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    return `Rasm hajmi 5 MB dan oshmasligi kerak (tanlangan fayl ${sizeMb} MB).`;
   }
   return null;
 }
@@ -147,6 +177,298 @@ const uid = () =>
   (globalThis.crypto && 'randomUUID' in globalThis.crypto
     ? globalThis.crypto.randomUUID()
     : String(Date.now()) + Math.random().toString(16).slice(2));
+
+/* ------------------------- Muharrir bo'limlari (o'tish) -------------------*/
+type SectionId =
+  | 'navbar'
+  | 'hero'
+  | 'features'
+  | 'courseInfo'
+  | 'goals'
+  | 'testimonials'
+  | 'courses'
+  | 'bonus'
+  | 'signup'
+  | 'footer'
+  | 'extra';
+
+const SECTIONS: { id: SectionId; label: string }[] = [
+  { id: 'navbar', label: 'Navbar' },
+  { id: 'hero', label: 'Hero' },
+  { id: 'features', label: 'Afzalliklar' },
+  { id: 'courseInfo', label: 'Kurslar haqida' },
+  { id: 'goals', label: 'Maqsadlar' },
+  { id: 'testimonials', label: 'Fikrlar' },
+  { id: 'courses', label: 'Kurslar' },
+  { id: 'bonus', label: 'Bonuslar' },
+  { id: 'signup', label: 'Ariza formasi' },
+  { id: 'footer', label: 'Footer' },
+  { id: 'extra', label: "Qo'shimcha matnlar" },
+];
+
+const sectionLabel = (id: SectionId) => SECTIONS.find((s) => s.id === id)?.label ?? id;
+const sectionDomId = (id: SectionId) => `landing-editor-${id}`;
+
+function scrollToSection(id: SectionId) {
+  document.getElementById(sectionDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function SectionAnchor({ id, children }: { id: SectionId; children: ReactNode }) {
+  // scroll-mt: yopishqoq boshqaruv paneli bo'lim boshini to'sib qo'ymasligi uchun.
+  return (
+    <div id={sectionDomId(id)} className="scroll-mt-56 lg:scroll-mt-32">
+      {children}
+    </div>
+  );
+}
+
+/* ------------------------- Saqlashdan oldingi tekshiruv -------------------
+ * Backend (LandingContentDto) qoidalarining nusxasi. Bu tekshiruv bo'lmasa:
+ *  - bo'sh matn 400 xato bilan inglizcha maydon nomi ("hero.title: ...") qaytaradi;
+ *  - noto'g'ri havola shared normalizer tomonidan INDAMAY standart qiymatga
+ *    almashtirilib saytga chiqib ketadi (masalan Telegram havolasi).
+ * -------------------------------------------------------------------------*/
+interface LandingIssue {
+  section: SectionId;
+  text: string;
+}
+
+const HTTP_URL_RE = /^https?:\/\/[^\s]+$/;
+const NAV_HREF_RE = /^(?:#[A-Za-z0-9_-]*|\/(?!\/)[^\s]*|https?:\/\/[^\s]+)$/;
+const PHONE_RE = /^[+0-9()\-\s]{5,50}$/;
+const COURSE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const ICON_NAME_RE = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+const ASSET_PATH_RE = /^(?:\/(?!\/)[^\s]*|https?:\/\/[^\s]+|landing\/[A-Za-z0-9._-]+)$/;
+
+const isValidLandingPhone = (phone: string) => {
+  const value = phone.trim();
+  return PHONE_RE.test(value) && value.replace(/\D/g, '').length >= 7;
+};
+
+function trimDeep<T>(value: T): T {
+  if (typeof value === 'string') return value.trim() as T;
+  if (Array.isArray(value)) return value.map((item) => trimDeep(item)) as T;
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, trimDeep(item)]),
+    ) as T;
+  }
+  return value;
+}
+
+/**
+ * Saqlashga tayyorlash: matnlar chetidagi bo'shliqlar olinadi, admin ko'ra
+ * olmaydigan texnik maydonlar (ID, son) backend qoidasiga keltiriladi.
+ */
+function prepareLandingContent(content: LandingContent): LandingContent {
+  const trimmed = trimDeep(content);
+
+  const usedCourseIds = new Set<string>();
+  const courses = trimmed.courses.map((course) => {
+    let id = course.id;
+    if (!COURSE_ID_RE.test(id) || usedCourseIds.has(id)) id = uid();
+    usedCourseIds.add(id);
+    return {
+      ...course,
+      id,
+      students: Math.max(0, Math.trunc(course.students) || 0),
+      rating: Math.min(5, Math.max(0, course.rating || 0)),
+    };
+  });
+
+  // Fikr va kitob IDlari: musbat butun va takrorlanmas bo'lishi shart.
+  const renumber = <T extends { id: number }>(items: T[]): T[] => {
+    const used = new Set<number>();
+    let next = items.reduce(
+      (max, item) => (Number.isSafeInteger(item.id) && item.id > max ? item.id : max),
+      0,
+    );
+    return items.map((item) => {
+      let id = item.id;
+      if (!Number.isSafeInteger(id) || id <= 0 || used.has(id)) {
+        next += 1;
+        id = next;
+      }
+      used.add(id);
+      return { ...item, id };
+    });
+  };
+
+  return {
+    ...trimmed,
+    courses,
+    testimonials: renumber(trimmed.testimonials),
+    bonusBooks: renumber(trimmed.bonusBooks),
+  };
+}
+
+function validateLandingContent(c: LandingContent): LandingIssue[] {
+  const issues: LandingIssue[] = [];
+  const add = (section: SectionId, text: string) => issues.push({ section, text });
+
+  const text = (section: SectionId, label: string, value: string, max: number) => {
+    if (!value.trim()) add(section, `${label} bo'sh bo'lmasligi kerak.`);
+    else if (value.length > max) {
+      add(section, `${label} ${max} belgidan oshmasligi kerak (hozir ${value.length}).`);
+    }
+  };
+  const count = (section: SectionId, label: string, length: number, max: number) => {
+    if (length > max) add(section, `${label} soni ${max} tadan oshmasligi kerak (hozir ${length}).`);
+  };
+  const optionalUrl = (section: SectionId, label: string, value: string | undefined) => {
+    if (!value) return;
+    if (value.length > 2048 || !HTTP_URL_RE.test(value)) {
+      add(section, `${label} http:// yoki https:// bilan boshlanadigan to'liq havola bo'lishi kerak.`);
+    }
+  };
+  const image = (section: SectionId, label: string, value: string | undefined) => {
+    if (!value) return;
+    if (value.length > 2048 || !ASSET_PATH_RE.test(value)) {
+      add(section, `${label} yo'li noto'g'ri — rasmni qayta yuklang yoki olib tashlang.`);
+    }
+  };
+  const icon = (section: SectionId, label: string, value: string) => {
+    if (!ICON_NAME_RE.test(value)) add(section, `${label}: ikonkani qayta tanlang.`);
+  };
+  const duplicates = (values: string[]) => {
+    const seen = new Set<string>();
+    const repeated = new Set<string>();
+    values.forEach((value) => (seen.has(value) ? repeated.add(value) : seen.add(value)));
+    return [...repeated];
+  };
+
+  // Navbar
+  text('navbar', 'Logotip matni', c.navbar.logo, 100);
+  text('navbar', "Navbar tugmasi matni", c.navbar.ctaLabel, 100);
+  count('navbar', 'Navbar havolalari', c.navbar.links.length, 20);
+  c.navbar.links.forEach((link, index) => {
+    const name = `${index + 1}-havola`;
+    text('navbar', `${name} matni`, link.label, 100);
+    if (!link.href) add('navbar', `${name} manzili bo'sh bo'lmasligi kerak.`);
+    else if (link.href.length > 2048 || !NAV_HREF_RE.test(link.href)) {
+      add(
+        'navbar',
+        `${name} manzili noto'g'ri: #bolim (lotin harf, raqam, - va _), /sahifa yoki https://... bo'lishi kerak.`,
+      );
+    }
+  });
+  // Sayt havolalarni manzili bo'yicha farqlaydi (React key) — takror bo'lmasligi kerak.
+  duplicates(c.navbar.links.map((link) => link.href)).forEach((href) =>
+    add('navbar', `Bir xil manzilli havolalar bor ("${href}") — har bir havola manzili alohida bo'lsin.`),
+  );
+
+  // Hero + ko'rsatkichlar
+  text('hero', 'Asosiy sarlavha', c.hero.title, 1000);
+  text('hero', 'Sarlavha osti matni', c.hero.subtitle, 4000);
+  text('hero', 'Birinchi tugma matni', c.hero.primaryBtn, 100);
+  text('hero', 'Ikkinchi tugma matni', c.hero.secondaryBtn, 100);
+  count('hero', "Ko'rsatkichlar", c.stats.length, 20);
+  c.stats.forEach((stat, index) => {
+    text('hero', `${index + 1}-ko'rsatkich qiymati`, stat.value, 100);
+    text('hero', `${index + 1}-ko'rsatkich nomi`, stat.label, 100);
+  });
+  duplicates(c.stats.map((stat) => stat.label)).forEach((label) =>
+    add('hero', `Bir xil nomli ko'rsatkichlar bor ("${label}") — nomlari har xil bo'lsin.`),
+  );
+
+  // Afzalliklar / Kurslar haqida
+  text('features', "Bo'lim sarlavhasi", c.featuresTitle, 255);
+  count('features', 'Kartalar', c.features.length, 50);
+  c.features.forEach((item, index) => {
+    text('features', `${index + 1}-karta matni`, item.text, 1000);
+    icon('features', `${index + 1}-karta`, item.icon);
+  });
+  text('courseInfo', "Bo'lim sarlavhasi", c.courseInfoTitle, 255);
+  count('courseInfo', 'Kartalar', c.courseInfo.length, 50);
+  c.courseInfo.forEach((item, index) => {
+    text('courseInfo', `${index + 1}-karta matni`, item.text, 1000);
+    icon('courseInfo', `${index + 1}-karta`, item.icon);
+  });
+
+  // Maqsadlar
+  text('goals', "Bo'lim sarlavhasi", c.goalsTitle, 255);
+  count('goals', 'Maqsadlar', c.goals.length, 50);
+  c.goals.forEach((goal, index) => {
+    text('goals', `${index + 1}-maqsad matni`, goal.title, 1000);
+    icon('goals', `${index + 1}-maqsad`, goal.icon);
+    image('goals', `${index + 1}-maqsad rasmi`, goal.image);
+  });
+
+  // Fikrlar
+  text('testimonials', "Bo'lim sarlavhasi", c.testimonialsTitle, 255);
+  count('testimonials', 'Fikrlar', c.testimonials.length, 100);
+  c.testimonials.forEach((item, index) => {
+    text('testimonials', `${index + 1}-fikr: ism`, item.name, 255);
+    text('testimonials', `${index + 1}-fikr: kurs nomi`, item.course, 255);
+    optionalUrl('testimonials', `${index + 1}-fikr: video havolasi`, item.videoUrl);
+    image('testimonials', `${index + 1}-fikr rasmi`, item.image);
+  });
+
+  // Kurslar
+  text('courses', "Bo'lim sarlavhasi", c.coursesTitle, 255);
+  text('courses', 'Kategoriya matni', c.courseCard.categoryLabel, 100);
+  text('courses', "O'quvchi birligi matni", c.courseCard.studentsLabel, 100);
+  text('courses', 'Xarid tugmasi matni', c.courseCard.buyLabel, 100);
+  count('courses', 'Kurslar', c.courses.length, 100);
+  c.courses.forEach((course, index) => {
+    text('courses', `${index + 1}-kurs: bayroq/emoji`, course.flag, 32);
+    text('courses', `${index + 1}-kurs nomi`, course.name, 255);
+    text('courses', `${index + 1}-kurs narxi`, course.price, 100);
+    optionalUrl('courses', `${index + 1}-kurs: harid havolasi`, course.buyUrl);
+  });
+
+  // Bonuslar
+  text('bonus', "Bo'lim sarlavhasi", c.bonusTitle, 255);
+  text('bonus', 'Bonus matni', c.bonusText, 4000);
+  count('bonus', 'Kitoblar', c.bonusBooks.length, 100);
+  c.bonusBooks.forEach((book, index) => {
+    text('bonus', `${index + 1}-kitob nomi`, book.title, 255);
+    image('bonus', `${index + 1}-kitob muqovasi`, book.cover);
+  });
+
+  // Ariza formasi
+  text('signup', 'Chap tomondagi matn', c.cta.description, 4000);
+  text('signup', 'Forma sarlavhasi', c.cta.title, 255);
+  text('signup', 'Ism maydoni nomi', c.cta.nameLabel, 100);
+  text('signup', 'Telefon maydoni nomi', c.cta.phoneLabel, 100);
+  text('signup', 'Yuborish tugmasi matni', c.cta.submitLabel, 100);
+
+  // Footer + kontaktlar
+  text('footer', 'Ijtimoiy sahifalar sarlavhasi', c.footer.socialTitle, 255);
+  text('footer', 'Aloqa markazi sarlavhasi', c.footer.contactTitle, 255);
+  text('footer', 'Kompaniya nomi', c.footer.company, 255);
+  if (!c.contacts.phone) add('footer', "Telefon raqami bo'sh bo'lmasligi kerak.");
+  else if (!isValidLandingPhone(c.contacts.phone)) {
+    add(
+      'footer',
+      "Telefon raqami noto'g'ri: faqat raqam, +, bo'sh joy, qavs va chiziqcha ishlatiladi (masalan +998 71 200 53 53).",
+    );
+  }
+  optionalUrl('footer', 'Telegram havolasi', c.contacts.telegram);
+  optionalUrl('footer', 'Instagram havolasi', c.contacts.instagram);
+  optionalUrl('footer', 'YouTube havolasi', c.contacts.youtube);
+
+  // Qo'shimcha matnlar
+  text('extra', 'Mobil menyu accessibility matni', c.navbar.menuLabel, 100);
+  text('extra', 'Modal sarlavhasi', c.leadModal.title, 255);
+  text('extra', 'Modal tavsifi', c.leadModal.description, 4000);
+  text('extra', 'Modalni yopish matni', c.leadModal.closeLabel, 100);
+  text('extra', 'Ixtiyoriy maydon belgisi', c.leadForm.optionalLabel, 100);
+  text('extra', 'Ism placeholderi', c.leadForm.namePlaceholder, 255);
+  text('extra', 'Telefon placeholderi', c.leadForm.phonePlaceholder, 255);
+  text('extra', 'Yuborilayotgan holat matni', c.leadForm.loadingLabel, 100);
+  text('extra', "Telefon noto'g'ri kiritilgandagi xabar", c.leadForm.invalidPhoneMessage, 1000);
+  text('extra', 'Muvaffaqiyatli yuborilgandagi xabar', c.leadForm.successMessage, 1000);
+  text('extra', 'Server xatosidagi xabar', c.leadForm.errorMessage, 1000);
+
+  return issues;
+}
+
+/* ----------------------- Rasm yuklanishini kuzatish -----------------------
+ * Rasm yuklanayotgan paytda "Saqlash" bosilsa, yangi rasm saqlangan kontentga
+ * kirmay qoladi — shu sabab sahifa nechta yuklash ketayotganini biladi.
+ * -------------------------------------------------------------------------*/
+const UploadTrackerContext = createContext<(delta: 1 | -1) => void>(() => {});
 
 /* ------------------------------ Lucide icon map --------------------------*/
 const iconMap = {
@@ -196,7 +518,11 @@ function IconGlyph({ name, className }: { name: string; className: string }) {
 
 /* ============================ Inline primitivlar ==========================*/
 
-const inlineBase = 'bg-transparent outline-none rounded-md px-1 -mx-1 transition-colors';
+const inlineCore = 'outline-none rounded-md px-1 -mx-1 transition-colors';
+const inlineBase = `bg-transparent ${inlineCore}`;
+// Bo'sh majburiy maydon yoki noto'g'ri havola — admin xato qayerdaligini ko'rsin.
+const invalidLight = 'bg-red-50 ring-1 ring-red-400';
+const invalidDark = 'bg-red-500/30 ring-1 ring-red-200';
 const inlineLight =
   'placeholder:text-gray-400 hover:bg-black/[0.04] focus:bg-white focus:ring-2 focus:ring-[var(--primary)]/40';
 const inlineDark =
@@ -213,6 +539,8 @@ function InlineText({
   min,
   max,
   title,
+  required = true,
+  invalid = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -224,7 +552,16 @@ function InlineText({
   min?: string;
   max?: string;
   title?: string;
+  /** Bo'sh qoldirib bo'lmaydigan matn (backend @NotBlank) — bo'sh bo'lsa qizil belgilanadi. */
+  required?: boolean;
+  invalid?: boolean;
 }) {
+  const trimmed = value.trim();
+  const bad =
+    invalid ||
+    (required && !trimmed) ||
+    (type === 'url' && trimmed !== '' && !HTTP_URL_RE.test(trimmed));
+  const tone = dark ? inlineDark : inlineLight;
   return (
     <input
       type={type}
@@ -233,9 +570,13 @@ function InlineText({
       max={max}
       value={value}
       title={title}
-      placeholder={placeholder}
+      aria-label={title ?? placeholder}
+      aria-invalid={bad || undefined}
+      placeholder={placeholder ?? (required ? 'Matn kiriting' : undefined)}
       onChange={(e) => onChange(e.target.value)}
-      className={`${inlineBase} ${dark ? inlineDark : inlineLight} ${className}`}
+      className={`${
+        bad ? `${inlineCore} ${dark ? invalidDark : invalidLight}` : inlineBase
+      } ${tone} ${className}`}
     />
   );
 }
@@ -245,14 +586,16 @@ function InlineArea({
   value,
   onChange,
   className = '',
-  placeholder,
+  placeholder = 'Matn kiriting',
   dark = false,
+  title,
 }: {
   value: string;
   onChange: (v: string) => void;
   className?: string;
   placeholder?: string;
   dark?: boolean;
+  title?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -261,16 +604,21 @@ function InlineArea({
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   });
+  // Barcha InlineArea maydonlari majburiy matn — bo'sh bo'lsa qizil belgilanadi.
+  const bad = !value.trim();
   return (
     <textarea
       ref={ref}
       rows={1}
       value={value}
+      title={title}
+      aria-label={title ?? placeholder}
+      aria-invalid={bad || undefined}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className={`${inlineBase} block w-full resize-none overflow-hidden ${
-        dark ? inlineDark : inlineLight
-      } ${className}`}
+      className={`${
+        bad ? `${inlineCore} ${dark ? invalidDark : invalidLight}` : inlineBase
+      } block w-full resize-none overflow-hidden ${dark ? inlineDark : inlineLight} ${className}`}
     />
   );
 }
@@ -296,8 +644,15 @@ function IconPicker({
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
 
   return (
@@ -305,6 +660,8 @@ function IconPicker({
       <button
         type="button"
         title="Ikonka tanlash"
+        aria-label="Ikonka tanlash"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className={
           triggerClassName ||
@@ -316,7 +673,7 @@ function IconPicker({
         <IconGlyph name={value} className={iconClassName} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl">
+        <div className="absolute left-0 top-full z-50 mt-2 w-64 max-w-[calc(100vw-3rem)] rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl">
           <input
             value={value}
             readOnly
@@ -331,6 +688,8 @@ function IconPicker({
                   key={name}
                   type="button"
                   title={name}
+                  aria-label={name}
+                  aria-pressed={active}
                   onClick={() => {
                     onChange(name);
                     setOpen(false);
@@ -376,26 +735,32 @@ function ImageSlot({
   rounded?: string;
   children?: ReactNode;
 }) {
+  const trackUpload = useContext(UploadTrackerContext);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const url = fileUrl(value);
   const pick = async (file?: File) => {
-    if (!file) return;
+    if (!file || uploading) return;
     const validationError = validateLandingImage(file);
     if (validationError) {
       setUploadError(validationError);
+      toast.error(validationError);
       return;
     }
 
     setUploadError('');
     setUploading(true);
+    trackUpload(1);
     try {
       const path = await uploadLandingImage(file);
       onChange(path);
     } catch (uploadFailure) {
-      setUploadError(shortApiError(uploadFailure, "Rasmni yuklab bo'lmadi."));
+      const message = shortApiError(uploadFailure, "Rasmni yuklab bo'lmadi.");
+      setUploadError(message);
+      toast.error(message);
     } finally {
       setUploading(false);
+      trackUpload(-1);
     }
   };
   return (
@@ -405,20 +770,33 @@ function ImageSlot({
       ) : (
         children
       )}
-      <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition group-hover/slot:opacity-100 focus-within:opacity-100">
-        <label
-          className="cursor-pointer rounded-md bg-black/50 p-1.5 text-white shadow hover:bg-black/70"
-          title="Rasm yuklash"
+      {uploading ? (
+        <div
+          role="status"
+          aria-label="Rasm yuklanmoqda"
+          className={`absolute inset-0 z-10 flex items-center justify-center bg-black/45 ${rounded}`}
         >
-          {uploading ? (
-            <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-          ) : (
-            <ImagePlus size={14} />
-          )}
+          <span className="block h-6 w-6 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+        </div>
+      ) : null}
+      {/* Sensorli ekranda hover yo'q — tugmalar doim ko'rinadi. */}
+      <div
+        className={`absolute right-1.5 top-1.5 z-10 flex gap-1 transition focus-within:opacity-100 group-hover/slot:opacity-100 [@media(hover:none)]:opacity-100 ${
+          uploading ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <label
+          className={`rounded-md bg-black/50 p-1.5 text-white shadow focus-within:ring-2 focus-within:ring-white hover:bg-black/70 ${
+            uploading ? 'cursor-wait' : 'cursor-pointer'
+          }`}
+          title="Rasm yuklash (JPG, PNG yoki WebP, 5 MB gacha)"
+        >
+          <ImagePlus size={14} />
           <input
             type="file"
             accept={LANDING_IMAGE_ACCEPT}
-            className="hidden"
+            aria-label="Rasm yuklash"
+            className="sr-only"
             disabled={uploading}
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
@@ -427,7 +805,7 @@ function ImageSlot({
             }}
           />
         </label>
-        {value ? (
+        {value && !uploading ? (
           <button
             type="button"
             onClick={() => {
@@ -436,6 +814,7 @@ function ImageSlot({
             }}
             className="rounded-md bg-black/50 p-1.5 text-white shadow hover:bg-red-600"
             title="Rasmni olib tashlash"
+            aria-label="Rasmni olib tashlash"
           >
             <X size={14} />
           </button>
@@ -490,12 +869,15 @@ function SortableList<T>({
   containerClassName = '',
   renderItem,
   footer,
+  describe,
 }: {
   items: T[];
   onChange: (items: T[]) => void;
   idPrefix: string;
   containerClassName?: string;
   footer?: ReactNode;
+  /** O'chirishni tasdiqlash oynasida ko'rsatiladigan element nomi. */
+  describe?: (item: T) => string;
   renderItem: (args: {
     item: T;
     index: number;
@@ -506,34 +888,93 @@ function SortableList<T>({
   }) => ReactNode;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const ids = items.map((_, i) => `${idPrefix}-${i}`);
+
+  // Har bir elementga barqaror kalit. Avval kalit indeks edi (`nav-0`, `nav-1`):
+  // tartib o'zgarganda yoki element o'chirilganda kartaning ichki holati
+  // (rasm yuklanishi, xato matni) qo'shni kartaga "ko'chib" qolardi.
+  const [keys, setKeys] = useState<string[]>(() => items.map(() => `${idPrefix}-${uid()}`));
+  let ids = keys;
+  if (keys.length !== items.length) {
+    // Tashqaridan qo'shilgan element (oxiriga) yoki qisqargan ro'yxat.
+    ids =
+      keys.length < items.length
+        ? [...keys, ...items.slice(keys.length).map(() => `${idPrefix}-${uid()}`)]
+        : keys.slice(0, items.length);
+    setKeys(ids);
+  }
+
+  // Asinxron amallar (rasm yuklash, tasdiqlash oynasi) tugaganda ro'yxatning
+  // ESKI nusxasi ustiga yozib yubormaslik uchun eng so'nggi holat ref'da turadi.
+  const latest = useRef({ items, ids, onChange });
+  const alive = useRef(true);
+  useEffect(() => {
+    latest.current = { items, ids, onChange };
+  });
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  const updateByKey = (key: string, patch: Partial<T>) => {
+    if (!alive.current) return;
+    const current = latest.current;
+    const index = current.ids.indexOf(key);
+    if (index === -1) return; // element shu orada o'chirilgan
+    current.onChange(current.items.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+  };
+
+  const removeByKey = async (key: string) => {
+    const before = latest.current;
+    const beforeIndex = before.ids.indexOf(key);
+    if (beforeIndex === -1) return;
+    const rawName = describe?.(before.items[beforeIndex]).trim() ?? '';
+    const name = rawName.length > 60 ? `${rawName.slice(0, 57)}...` : rawName;
+    const ok = await confirmDialog({
+      title: "Element o'chirilsinmi?",
+      message: `${name ? `"${name}"` : 'Bu element'} ro'yxatdan olib tashlanadi. Saytga «Saqlash» bosilgandan keyin chiqadi.`,
+      confirmText: "O'chirish",
+      danger: true,
+    });
+    if (!ok || !alive.current) return;
+    const current = latest.current;
+    const index = current.ids.indexOf(key);
+    if (index === -1) return;
+    setKeys(current.ids.filter((id) => id !== key));
+    current.onChange(current.items.filter((_, i) => i !== index));
+  };
+
   const onDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     const from = ids.indexOf(String(active.id));
     const to = ids.indexOf(String(over.id));
     if (from === -1 || to === -1) return;
+    setKeys(arrayMove(ids, from, to));
     onChange(arrayMove(items, from, to));
   };
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={ids} strategy={rectSortingStrategy}>
         <div className={containerClassName}>
-          {items.map((item, index) => (
-            <SortableCell key={ids[index]} id={ids[index]}>
-              {({ handleProps, isDragging }) =>
-                renderItem({
-                  item,
-                  index,
-                  isDragging,
-                  handleProps,
-                  update: (patch) =>
-                    onChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it))),
-                  remove: () => onChange(items.filter((_, i) => i !== index)),
-                })
-              }
-            </SortableCell>
-          ))}
+          {items.map((item, index) => {
+            const key = ids[index];
+            return (
+              <SortableCell key={key} id={key}>
+                {({ handleProps, isDragging }) =>
+                  renderItem({
+                    item,
+                    index,
+                    isDragging,
+                    handleProps,
+                    update: (patch) => updateByKey(key, patch),
+                    remove: () => void removeByKey(key),
+                  })
+                }
+              </SortableCell>
+            );
+          })}
           {footer}
         </div>
       </SortableContext>
@@ -553,7 +994,7 @@ function ItemControls({
 }) {
   return (
     <div
-      className={`absolute top-2 z-20 flex gap-1 opacity-0 transition group-hover/item:opacity-100 ${
+      className={`absolute top-2 z-20 flex gap-1 opacity-0 transition focus-within:opacity-100 group-hover/item:opacity-100 [@media(hover:none)]:opacity-100 ${
         align === 'left' ? 'left-2' : 'right-2'
       }`}
     >
@@ -562,6 +1003,7 @@ function ItemControls({
         {...(handleProps as Record<string, unknown>)}
         className="cursor-grab touch-none rounded-md bg-white p-1 text-gray-500 shadow ring-1 ring-gray-200 active:cursor-grabbing"
         title="Sudrab tartiblang"
+        aria-label="Sudrab tartiblang"
       >
         <GripVertical size={14} />
       </button>
@@ -570,6 +1012,7 @@ function ItemControls({
         onClick={onRemove}
         className="rounded-md bg-white p-1 text-gray-500 shadow ring-1 ring-gray-200 hover:text-red-600"
         title="O'chirish"
+        aria-label="O'chirish"
       >
         <Trash2 size={14} />
       </button>
@@ -590,6 +1033,8 @@ function AddCard({
     <button
       type="button"
       onClick={onClick}
+      title={label || "Qo'shish"}
+      aria-label={label || "Qo'shish"}
       className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gray-300 p-6 text-sm font-medium text-gray-400 transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)] ${className}`}
     >
       <Plus size={20} />
@@ -646,23 +1091,27 @@ function NavbarEditor({
   const set = (p: Partial<LandingContent['navbar']>) => onChange({ ...value, ...p });
   return (
     <header className="rounded-t-2xl border-b border-gray-100 bg-white/90 backdrop-blur">
-      <Container className="flex h-16 items-center justify-between gap-4">
+      <Container className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2">
         <InlineText
+          title="Logotip matni"
           value={value.logo}
           onChange={(logo) => set({ logo })}
           className="w-32 text-xl font-extrabold tracking-tight text-[var(--primary)]"
         />
-        <nav className="hidden items-center gap-2 md:flex">
+        {/* Tor ekranda ham havolalar tahrirlanishi kerak — shuning uchun yashirilmaydi. */}
+        <nav className="flex flex-wrap items-center gap-2">
           <SortableList
             items={value.links}
             onChange={(links) => set({ links })}
             idPrefix="nav"
-            containerClassName="flex items-center gap-2"
+            describe={(item) => item.label}
+            containerClassName="flex flex-wrap items-center gap-2"
             footer={
               <button
                 type="button"
                 onClick={() => set({ links: [...value.links, { label: 'Havola', href: '#' }] })}
                 title="Havola qo'shish"
+                aria-label="Havola qo'shish"
                 className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed border-gray-300 text-gray-400 hover:border-[var(--primary)] hover:text-[var(--primary)]"
               >
                 <Plus size={14} />
@@ -676,19 +1125,22 @@ function NavbarEditor({
                     {...(handleProps as Record<string, unknown>)}
                     className="cursor-grab touch-none text-gray-300 hover:text-gray-500"
                     title="Sudrab tartiblang"
+                    aria-label="Sudrab tartiblang"
                   >
                     <GripVertical size={12} />
                   </button>
                   <InlineText
                     value={item.label}
                     onChange={(label) => update({ label })}
+                    title="Havola matni"
                     className="w-24 text-sm font-medium text-gray-600"
                   />
                   <button
                     type="button"
                     onClick={remove}
                     className="text-gray-300 hover:text-red-600"
-                    title="O'chirish"
+                    title="Havolani o'chirish"
+                    aria-label="Havolani o'chirish"
                   >
                     <X size={12} />
                   </button>
@@ -696,6 +1148,8 @@ function NavbarEditor({
                 <InlineText
                   value={item.href}
                   onChange={(href) => update({ href })}
+                  invalid={!NAV_HREF_RE.test(item.href.trim())}
+                  title="Havola manzili: #bolim, /sahifa yoki https://..."
                   placeholder="#havola"
                   className="ml-3.5 w-24 text-[10px] text-gray-400"
                 />
@@ -711,7 +1165,7 @@ function NavbarEditor({
             />
           </span>
         </nav>
-        <Menu className="h-6 w-6 text-gray-700 md:hidden" />
+        <Menu aria-hidden className="h-6 w-6 text-gray-700 md:hidden" />
       </Container>
     </header>
   );
@@ -771,11 +1225,14 @@ function HeroEditor({
             items={stats}
             onChange={onStats}
             idPrefix="stat"
+            describe={(item) => `${item.value} ${item.label}`}
             containerClassName="grid grid-cols-3 gap-4 sm:gap-8"
             footer={
               <button
                 type="button"
                 onClick={() => onStats([...stats, { value: '0', label: 'Nomi' }])}
+                title="Ko'rsatkich qo'shish"
+                aria-label="Ko'rsatkich qo'shish"
                 className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-white/40 text-xs font-medium text-white/70 hover:border-white hover:text-white"
               >
                 <Plus size={18} />
@@ -829,6 +1286,7 @@ function FeatureGridEditor({
         items={items}
         onChange={onItems}
         idPrefix="feat"
+        describe={(item) => item.text}
         containerClassName="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4"
         footer={
           <AddCard
@@ -876,6 +1334,7 @@ function GoalsEditor({
         items={goals}
         onChange={onGoals}
         idPrefix="goal"
+        describe={(item) => item.title}
         containerClassName="grid grid-cols-1 gap-6 md:grid-cols-3"
         footer={
           <AddCard
@@ -942,6 +1401,7 @@ function TestimonialsEditor({
           items={items}
           onChange={onItems}
           idPrefix="tst"
+          describe={(item) => `${item.name} — ${item.course}`}
           containerClassName="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5"
           footer={
             <AddCard
@@ -982,7 +1442,8 @@ function TestimonialsEditor({
                   type="url"
                   value={item.videoUrl ?? ''}
                   onChange={(videoUrl) => update({ videoUrl })}
-                  placeholder="Video URL"
+                  required={false}
+                  placeholder="Video havolasi (https://...)"
                   className="mt-1 w-full text-[10px] text-gray-400"
                 />
               </div>
@@ -1011,10 +1472,19 @@ function CoursesEditor({
 }) {
   return (
     <PreviewSection id="courses" bg="bg-white" title={title} onTitle={onTitle}>
+      <p className="mx-auto mb-6 flex max-w-3xl items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+        <Info size={16} className="mt-0.5 shrink-0" />
+        <span>
+          Saytda avval «Kurslar» bo'limidagi jonli katalog ko'rsatiladi. Quyidagi kartalar faqat
+          katalog bo'sh bo'lsa yoki yuklanmasa chiqadi. Kategoriya va tugma matni esa har doim
+          ishlatiladi.
+        </span>
+      </p>
       <SortableList
         items={items}
         onChange={onItems}
         idPrefix="crs"
+        describe={(item) => item.name}
         containerClassName="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         footer={
           <AddCard
@@ -1114,7 +1584,8 @@ function CoursesEditor({
               type="url"
               value={item.buyUrl ?? ''}
               onChange={(buyUrl) => update({ buyUrl })}
-              placeholder="Harid havolasi (URL)"
+              required={false}
+              placeholder="Harid havolasi (https://...)"
               className="mt-1 w-full text-[10px] text-gray-400"
             />
             <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white">
@@ -1155,6 +1626,7 @@ function BonusesEditor({
           items={books}
           onChange={onBooks}
           idPrefix="book"
+          describe={(item) => item.title}
           containerClassName="grid grid-cols-3 gap-4 sm:grid-cols-4"
           footer={
             <AddCard
@@ -1182,6 +1654,14 @@ function BonusesEditor({
                   />
                 </div>
               </ImageSlot>
+              {item.cover ? (
+                <InlineText
+                  value={item.title}
+                  onChange={(title) => update({ title })}
+                  title="Kitob nomi (rasmning alt matni)"
+                  className="mt-1 w-full text-center text-[10px] text-gray-600"
+                />
+              ) : null}
             </div>
           )}
         />
@@ -1287,6 +1767,7 @@ function FooterEditor({
         type="url"
         value={value}
         onChange={onChange}
+        required={false}
         placeholder={ph}
         className="flex-1 text-sm text-white/80"
       />
@@ -1329,6 +1810,8 @@ function FooterEditor({
                 type="tel"
                 value={contacts.phone}
                 onChange={(phone) => onContacts({ phone })}
+                invalid={!isValidLandingPhone(contacts.phone)}
+                title="Telefon raqami: faqat raqam, +, bo'sh joy, qavs va chiziqcha"
                 className="w-48 text-lg font-bold"
               />
             </div>
@@ -1358,26 +1841,38 @@ function CopyField({
   onChange: (value: string) => void;
   multiline?: boolean;
 }) {
-  const className =
-    'mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15';
+  // Bu maydonlarning barchasi backendda majburiy (@NotBlank).
+  const empty = !value.trim();
+  const className = `mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-800 outline-none transition focus:ring-2 ${
+    empty
+      ? 'border-red-400 focus:border-red-500 focus:ring-red-500/15'
+      : 'border-gray-200 focus:border-[var(--primary)] focus:ring-[var(--primary)]/15'
+  }`;
 
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-gray-600">{label}</span>
+      <span className="text-xs font-semibold text-gray-600">
+        {label} <span className="text-red-500">*</span>
+      </span>
       {multiline ? (
         <textarea
           rows={3}
           value={value}
+          aria-invalid={empty || undefined}
           onChange={(event) => onChange(event.target.value)}
           className={`${className} resize-y`}
         />
       ) : (
         <input
           value={value}
+          aria-invalid={empty || undefined}
           onChange={(event) => onChange(event.target.value)}
           className={className}
         />
       )}
+      {empty ? (
+        <span className="mt-1 block text-xs text-red-600">Bo'sh qoldirib bo'lmaydi</span>
+      ) : null}
     </label>
   );
 }
@@ -1482,21 +1977,33 @@ function AdditionalCopyEditor({
 
 /* ================================ Sahifa ================================*/
 export default function LandingPage() {
+  const navigate = useNavigate();
   const [content, setContent] = useState<LandingContent | null>(null);
+  // Serverda turgan (oxirgi yuklangan/saqlangan) kontent — "o'zgargan" belgisini aniqlash uchun.
+  const [saved, setSaved] = useState<LandingContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [resetOpen, setResetOpen] = useState(false);
+  const [uploads, setUploads] = useState(0);
+  // Kontent butunlay almashtirilganda (qayta yuklash / bekor qilish / standart)
+  // kanvas qayta quriladi — kartalarning ichki holati eski kontentdan qolib ketmaydi.
+  const [revision, setRevision] = useState(0);
+  const [showIssues, setShowIssues] = useState(false);
+  const savingRef = useRef(false);
 
   const fetchContent = async () => {
     setLoading(true);
     setError('');
     try {
-      setContent(await requestLandingContent());
+      const nextContent = await requestLandingContent();
+      setContent(nextContent);
+      setSaved(nextContent);
+      setShowIssues(false);
+      setRevision((value) => value + 1);
     } catch (loadError) {
       setError(landingLoadError(loadError));
       setContent(null);
+      setSaved(null);
     } finally {
       setLoading(false);
     }
@@ -1508,12 +2015,14 @@ export default function LandingPage() {
       .then((nextContent) => {
         if (controller.signal.aborted) return;
         setContent(nextContent);
+        setSaved(nextContent);
         setError('');
       })
       .catch((loadError: unknown) => {
         if (controller.signal.aborted) return;
         setError(landingLoadError(loadError));
         setContent(null);
+        setSaved(null);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -1522,189 +2031,413 @@ export default function LandingPage() {
     return () => controller.abort();
   }, []);
 
-  // Status xabarini bir necha soniyadan so'ng avtomatik yopamiz.
-  useEffect(() => {
-    if (!status) return;
-    const t = setTimeout(() => setStatus(null), 3500);
-    return () => clearTimeout(t);
-  }, [status]);
+  const trackUpload = useCallback(
+    (delta: 1 | -1) => setUploads((value) => Math.max(0, value + delta)),
+    [],
+  );
+
+  const savedJson = useMemo(() => (saved ? JSON.stringify(saved) : ''), [saved]);
+  const dirty = useMemo(
+    () => content !== null && content !== saved && JSON.stringify(content) !== savedJson,
+    [content, saved, savedJson],
+  );
+
+  // Birinchi muvaffaqiyatsiz saqlashdan keyin xatolar ro'yxati jonli yangilanadi.
+  const issues = useMemo(
+    () => (showIssues && content ? validateLandingContent(prepareLandingContent(content)) : []),
+    [showIssues, content],
+  );
 
   const patch = (p: Partial<LandingContent>) => setContent((c) => (c ? { ...c, ...p } : c));
 
   const save = async () => {
-    if (!content) return;
-    setSaving(true);
-    setStatus(null);
+    if (!content || savingRef.current) return;
+    if (uploads > 0) {
+      toast.info('Rasm yuklanishi tugashini kuting, keyin saqlang.');
+      return;
+    }
+
+    const prepared = prepareLandingContent(content);
+    const found = validateLandingContent(prepared);
+    if (found.length > 0) {
+      setShowIssues(true);
+      toast.error(
+        `Saqlanmadi: ${found.length} ta xato bor. ${sectionLabel(found[0].section)} — ${found[0].text}`,
+      );
+      scrollToSection(found[0].section);
+      return;
+    }
+
+    let canonicalContent: LandingContent;
     try {
-      const canonicalContent = normalizeEditableLandingContent(content);
+      canonicalContent = normalizeEditableLandingContent(prepared);
+    } catch (schemaError) {
+      toast.error(
+        schemaError instanceof UnsupportedLandingSchemaError
+          ? schemaError.message
+          : "Kontentni saqlashga tayyorlab bo'lmadi.",
+      );
+      return;
+    }
+
+    savingRef.current = true;
+    setSaving(true);
+    try {
       await api.put(SAVE_URL, canonicalContent);
-      setContent(canonicalContent);
-      setStatus({ type: 'success', text: 'Saqlandi' });
+      setSaved(canonicalContent);
+      // Saqlash davomida admin yozishda davom etgan bo'lsa, uning matnini ustidan yozmaymiz.
+      setContent((current) => (current === content ? canonicalContent : current));
+      setShowIssues(false);
+      toast.success("Saqlandi — o'zgarishlar saytda ko'rinadi.");
     } catch (saveError) {
-      setStatus({
-        type: 'error',
-        text:
-          saveError instanceof UnsupportedLandingSchemaError
-            ? saveError.message
-            : shortApiError(saveError, 'Saqlashda xatolik yuz berdi'),
-      });
+      toast.error(
+        shortApiError(saveError, "Saqlab bo'lmadi. O'zgarishlaringiz shu sahifada turibdi — qayta urinib ko'ring."),
+      );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
-  const resetToDefault = () => {
-    setContent(createDefaultLandingContent());
-    setResetOpen(false);
-    setStatus({ type: 'success', text: "Standart kontent tiklandi (saqlash uchun 'Saqlash')" });
+  const discardChanges = async () => {
+    if (!saved || !dirty || savingRef.current) return;
+    const ok = await confirmDialog({
+      title: "Saqlanmagan o'zgarishlar tashlab yuborilsinmi?",
+      message: "Oxirgi saqlangan holatga qaytiladi. Kiritilgan o'zgarishlarni qayta tiklab bo'lmaydi.",
+      confirmText: 'Tashlab yuborish',
+      cancelText: 'Tahrirni davom ettirish',
+      danger: true,
+    });
+    if (!ok) return;
+    setContent(saved);
+    setShowIssues(false);
+    setRevision((value) => value + 1);
+    toast.info('Oxirgi saqlangan holat tiklandi.');
   };
 
+  const resetToDefault = async () => {
+    if (savingRef.current) return;
+    const ok = await confirmDialog({
+      title: 'Standart kontentga qaytarilsinmi?',
+      message:
+        "Barcha matnlar, ro'yxatlar va rasmlar boshlang'ich (standart) holatga almashtiriladi. Saytga faqat «Saqlash» bosilgandan keyin chiqadi.",
+      confirmText: 'Ha, qaytarish',
+      danger: true,
+    });
+    if (!ok) return;
+    setContent(createDefaultLandingContent());
+    setShowIssues(false);
+    setRevision((value) => value + 1);
+    toast.info('Standart kontent qo\'yildi. Saytga chiqarish uchun «Saqlash» tugmasini bosing.');
+  };
+
+  // Ctrl/Cmd+S — saqlash. Handler doim eng so'nggi `save`ni chaqirishi uchun ref.
+  const saveRef = useRef(save);
+  useEffect(() => {
+    saveRef.current = save;
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 's') return;
+      event.preventDefault();
+      if (useUiStore.getState().confirmState) return;
+      void saveRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Saqlanmagan o'zgarishlar bilan sahifadan chiqib ketishdan himoya.
+  useEffect(() => {
+    if (!dirty) return;
+
+    // Yorliqni yopish / yangilash / tashqi manzilga o'tish.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Eski brauzerlar ogohlantirishni faqat returnValue orqali ko'rsatadi.
+      event.returnValue = '';
+    };
+
+    // Panel ichidagi havolalar (yon menyu). Ilova BrowserRouter'da ishlaydi, unda
+    // useBlocker yo'q — shu sabab havola bosilishini capture bosqichida ushlaymiz:
+    // preventDefault qilingan bosishni react-router <Link> o'zi e'tiborsiz qoldiradi.
+    const onLinkClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if ((anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname) return;
+
+      event.preventDefault();
+      void confirmDialog({
+        title: "Saqlanmagan o'zgarishlar bor",
+        message: "Sahifadan chiqsangiz, landing'ga kiritilgan o'zgarishlar yo'qoladi.",
+        confirmText: 'Saqlamasdan chiqish',
+        cancelText: 'Sahifada qolish',
+        danger: true,
+      }).then((ok) => {
+        if (ok) navigate(`${url.pathname}${url.search}${url.hash}`);
+      });
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('click', onLinkClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onLinkClick, true);
+    };
+  }, [dirty, navigate]);
+
   if (loading) {
-    return <div className="py-16 text-center text-gray-400">Yuklanmoqda...</div>;
+    return (
+      <div>
+        <PageHeader title="Landing sahifasi" description="Ommaviy sayt kontenti muharriri" />
+        <LoadingState label="Landing kontenti yuklanmoqda..." />
+      </div>
+    );
   }
   if (error || !content) {
     return (
-      <div className="py-16 text-center">
-        <p className="mb-4 text-gray-500">{error || "Kontentni yuklab bo'lmadi."}</p>
-        <Button variant="secondary" onClick={fetchContent}>
-          Qayta urinish
-        </Button>
+      <div>
+        <PageHeader title="Landing sahifasi" description="Ommaviy sayt kontenti muharriri" />
+        <ErrorState
+          message={error || "Landing kontentini yuklab bo'lmadi."}
+          onRetry={() => void fetchContent()}
+        />
       </div>
     );
   }
 
+  const busy = saving || uploads > 0;
+
   return (
     <div>
-      {/* Sticky boshqaruv paneli */}
-      <div className="sticky top-0 z-50 -mx-6 -mt-6 mb-6 flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white/95 px-6 py-3 backdrop-blur">
-        <div className="mr-auto">
-          <h1 className="text-lg font-bold text-gray-900">Landing sahifasi</h1>
-          <p className="text-xs text-gray-500">Har bir elementni bevosita bosib tahrirlang</p>
-        </div>
-        {status && (
-          <span
-            className={`text-sm font-medium ${
-              status.type === 'success' ? 'text-green-600' : 'text-red-600'
-            }`}
+      {/* Yopishqoq boshqaruv paneli. Mobilda layout sarlavhasi (h-14) ostida turadi. */}
+      <div className="sticky top-14 z-30 -mx-4 -mt-4 mb-6 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6 lg:top-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="mr-auto min-w-0">
+            <h1 className="text-lg font-bold text-gray-900">Landing sahifasi</h1>
+            <p
+              role="status"
+              className={`flex items-center gap-1.5 text-xs ${
+                dirty ? 'font-medium text-amber-700' : 'text-gray-500'
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`h-2 w-2 shrink-0 rounded-full ${
+                  saving || uploads > 0 ? 'animate-pulse bg-blue-500' : dirty ? 'bg-amber-500' : 'bg-green-500'
+                }`}
+              />
+              {saving
+                ? 'Saqlanmoqda...'
+                : uploads > 0
+                  ? 'Rasm yuklanmoqda...'
+                  : dirty
+                    ? "Saqlanmagan o'zgarishlar bor"
+                    : "Barcha o'zgarishlar saqlangan"}
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => void resetToDefault()}
+            disabled={busy}
+            title="Standartga qaytarish"
+            aria-label="Standartga qaytarish"
           >
-            {status.text}
-          </span>
-        )}
-        <Button variant="secondary" onClick={() => setResetOpen(true)}>
-          <RotateCcw size={16} />
-          Standartga qaytarish
-        </Button>
-        <a href={PUBLIC_URL} target="_blank" rel="noreferrer">
-          <Button variant="secondary">
-            <Eye size={16} />
-            Ko'rish
-          </Button>
-        </a>
-        <Button onClick={save} disabled={saving}>
-          <Save size={16} />
-          {saving ? 'Saqlanmoqda...' : 'Saqlash'}
-        </Button>
-      </div>
-
-      {/* Landing'ning aynan nusxasi — WYSIWYG kanvas */}
-      <div className="rounded-2xl border border-gray-200 shadow-sm">
-        <NavbarEditor value={content.navbar} onChange={(navbar) => patch({ navbar })} />
-
-        <HeroEditor
-          hero={content.hero}
-          stats={content.stats}
-          onHero={(p) => patch({ hero: { ...content.hero, ...p } })}
-          onStats={(stats) => patch({ stats })}
-        />
-
-        <FeatureGridEditor
-          id="about"
-          bg="bg-white"
-          title={content.featuresTitle}
-          onTitle={(featuresTitle) => patch({ featuresTitle })}
-          items={content.features}
-          onItems={(features) => patch({ features })}
-          addTemplate={{ icon: 'Sparkles', text: 'Yangi imkoniyat' }}
-        />
-
-        <FeatureGridEditor
-          bg="bg-[var(--primary-light)]"
-          title={content.courseInfoTitle}
-          onTitle={(courseInfoTitle) => patch({ courseInfoTitle })}
-          items={content.courseInfo}
-          onItems={(courseInfo) => patch({ courseInfo })}
-          addTemplate={{ icon: 'Video', text: "Yangi ma'lumot" }}
-        />
-
-        <GoalsEditor
-          title={content.goalsTitle}
-          onTitle={(goalsTitle) => patch({ goalsTitle })}
-          goals={content.goals}
-          onGoals={(goals) => patch({ goals })}
-        />
-
-        <TestimonialsEditor
-          title={content.testimonialsTitle}
-          onTitle={(testimonialsTitle) => patch({ testimonialsTitle })}
-          items={content.testimonials}
-          onItems={(testimonials) => patch({ testimonials })}
-        />
-
-        <CoursesEditor
-          title={content.coursesTitle}
-          onTitle={(coursesTitle) => patch({ coursesTitle })}
-          items={content.courses}
-          onItems={(courses) => patch({ courses })}
-          copy={content.courseCard}
-          onCopy={(p) => patch({ courseCard: { ...content.courseCard, ...p } })}
-        />
-
-        <BonusesEditor
-          title={content.bonusTitle}
-          onTitle={(bonusTitle) => patch({ bonusTitle })}
-          text={content.bonusText}
-          onText={(bonusText) => patch({ bonusText })}
-          books={content.bonusBooks}
-          onBooks={(bonusBooks) => patch({ bonusBooks })}
-        />
-
-        <SignupEditor cta={content.cta} onCta={(p) => patch({ cta: { ...content.cta, ...p } })} />
-
-        <FooterEditor
-          logo={content.navbar.logo}
-          onLogo={(logo) => patch({ navbar: { ...content.navbar, logo } })}
-          footer={content.footer}
-          onFooter={(p) => patch({ footer: { ...content.footer, ...p } })}
-          contacts={content.contacts}
-          onContacts={(p) => patch({ contacts: { ...content.contacts, ...p } })}
-        />
-      </div>
-
-      <AdditionalCopyEditor
-        navbar={content.navbar}
-        onNavbar={(p) => patch({ navbar: { ...content.navbar, ...p } })}
-        leadForm={content.leadForm}
-        onLeadForm={(p) => patch({ leadForm: { ...content.leadForm, ...p } })}
-        leadModal={content.leadModal}
-        onLeadModal={(p) => patch({ leadModal: { ...content.leadModal, ...p } })}
-      />
-
-      {/* Standartga qaytarish tasdig'i */}
-      <Modal open={resetOpen} onClose={() => setResetOpen(false)} title="Standartga qaytarish">
-        <p className="text-sm text-gray-600">
-          Barcha o'zgarishlar bekor qilinib, standart (boshlang'ich) kontent tiklanadi. Bu amal
-          faqat "Saqlash" bosilgandan so'ng bazaga yoziladi. Davom etilsinmi?
-        </p>
-        <div className="mt-6 flex justify-end gap-3">
-          <Button variant="secondary" onClick={() => setResetOpen(false)}>
-            Bekor qilish
-          </Button>
-          <Button variant="danger" onClick={resetToDefault}>
             <RotateCcw size={16} />
-            Ha, qaytarish
+            <span className="hidden xl:inline">Standartga qaytarish</span>
+          </Button>
+          {dirty ? (
+            <Button
+              variant="secondary"
+              onClick={() => void discardChanges()}
+              disabled={busy}
+              title="Saqlanmagan o'zgarishlarni bekor qilish"
+              aria-label="Saqlanmagan o'zgarishlarni bekor qilish"
+            >
+              <Undo2 size={16} />
+              <span className="hidden md:inline">Bekor qilish</span>
+            </Button>
+          ) : null}
+          <a
+            href={PUBLIC_URL}
+            target="_blank"
+            rel="noreferrer"
+            title="Saytni yangi oynada ochish (faqat saqlangan kontent ko'rinadi)"
+            aria-label="Saytni yangi oynada ochish"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40"
+          >
+            <Eye size={16} />
+            <span className="hidden md:inline">Saytni ko'rish</span>
+          </a>
+          <Button
+            onClick={() => void save()}
+            loading={saving}
+            disabled={uploads > 0}
+            title={uploads > 0 ? 'Rasm yuklanishi tugashini kuting' : 'Saqlash (Ctrl+S)'}
+          >
+            {saving ? null : <Save size={16} />}
+            Saqlash
           </Button>
         </div>
-      </Modal>
+
+        {/* Bo'limlar orasida tez o'tish */}
+        <nav aria-label="Muharrir bo'limlari" className="-mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+          {SECTIONS.map((section) => {
+            const hasIssue = issues.some((issue) => issue.section === section.id);
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => scrollToSection(section.id)}
+                className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  hasIssue
+                    ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-[var(--primary)] hover:text-[var(--primary)]'
+                }`}
+              >
+                {section.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {issues.length > 0 ? (
+        <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-red-800">
+            <AlertTriangle size={16} className="shrink-0" />
+            Saqlash uchun {issues.length} ta xatoni tuzating
+          </p>
+          <ul className="mt-2 space-y-1">
+            {issues.slice(0, 10).map((issue, index) => (
+              <li key={`${issue.section}-${index}`}>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(issue.section)}
+                  className="text-left text-sm text-red-700 hover:underline"
+                >
+                  <span className="font-semibold">{sectionLabel(issue.section)}:</span> {issue.text}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {issues.length > 10 ? (
+            <p className="mt-2 text-xs text-red-700">...va yana {issues.length - 10} ta xato.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <UploadTrackerContext.Provider value={trackUpload}>
+        {/* Landing'ning aynan nusxasi — WYSIWYG kanvas */}
+        <div key={revision} className="rounded-2xl border border-gray-200 shadow-sm">
+          <SectionAnchor id="navbar">
+            <NavbarEditor value={content.navbar} onChange={(navbar) => patch({ navbar })} />
+          </SectionAnchor>
+
+          <SectionAnchor id="hero">
+            <HeroEditor
+              hero={content.hero}
+              stats={content.stats}
+              onHero={(p) => patch({ hero: { ...content.hero, ...p } })}
+              onStats={(stats) => patch({ stats })}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="features">
+            <FeatureGridEditor
+              id="about"
+              bg="bg-white"
+              title={content.featuresTitle}
+              onTitle={(featuresTitle) => patch({ featuresTitle })}
+              items={content.features}
+              onItems={(features) => patch({ features })}
+              addTemplate={{ icon: 'Sparkles', text: 'Yangi imkoniyat' }}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="courseInfo">
+            <FeatureGridEditor
+              bg="bg-[var(--primary-light)]"
+              title={content.courseInfoTitle}
+              onTitle={(courseInfoTitle) => patch({ courseInfoTitle })}
+              items={content.courseInfo}
+              onItems={(courseInfo) => patch({ courseInfo })}
+              addTemplate={{ icon: 'Video', text: "Yangi ma'lumot" }}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="goals">
+            <GoalsEditor
+              title={content.goalsTitle}
+              onTitle={(goalsTitle) => patch({ goalsTitle })}
+              goals={content.goals}
+              onGoals={(goals) => patch({ goals })}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="testimonials">
+            <TestimonialsEditor
+              title={content.testimonialsTitle}
+              onTitle={(testimonialsTitle) => patch({ testimonialsTitle })}
+              items={content.testimonials}
+              onItems={(testimonials) => patch({ testimonials })}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="courses">
+            <CoursesEditor
+              title={content.coursesTitle}
+              onTitle={(coursesTitle) => patch({ coursesTitle })}
+              items={content.courses}
+              onItems={(courses) => patch({ courses })}
+              copy={content.courseCard}
+              onCopy={(p) => patch({ courseCard: { ...content.courseCard, ...p } })}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="bonus">
+            <BonusesEditor
+              title={content.bonusTitle}
+              onTitle={(bonusTitle) => patch({ bonusTitle })}
+              text={content.bonusText}
+              onText={(bonusText) => patch({ bonusText })}
+              books={content.bonusBooks}
+              onBooks={(bonusBooks) => patch({ bonusBooks })}
+            />
+          </SectionAnchor>
+
+          <SectionAnchor id="signup">
+            <SignupEditor cta={content.cta} onCta={(p) => patch({ cta: { ...content.cta, ...p } })} />
+          </SectionAnchor>
+
+          <SectionAnchor id="footer">
+            <FooterEditor
+              logo={content.navbar.logo}
+              onLogo={(logo) => patch({ navbar: { ...content.navbar, logo } })}
+              footer={content.footer}
+              onFooter={(p) => patch({ footer: { ...content.footer, ...p } })}
+              contacts={content.contacts}
+              onContacts={(p) => patch({ contacts: { ...content.contacts, ...p } })}
+            />
+          </SectionAnchor>
+        </div>
+      </UploadTrackerContext.Provider>
+
+      <SectionAnchor id="extra">
+        <AdditionalCopyEditor
+          navbar={content.navbar}
+          onNavbar={(p) => patch({ navbar: { ...content.navbar, ...p } })}
+          leadForm={content.leadForm}
+          onLeadForm={(p) => patch({ leadForm: { ...content.leadForm, ...p } })}
+          leadModal={content.leadModal}
+          onLeadModal={(p) => patch({ leadModal: { ...content.leadModal, ...p } })}
+        />
+      </SectionAnchor>
     </div>
   );
 }
