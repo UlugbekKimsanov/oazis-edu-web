@@ -1,15 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Bot, CheckCircle2, Loader2, MessageSquareText, ShieldCheck } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Bot, Eye, EyeOff, MessageSquareText, ShieldCheck } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
+import { ErrorState, Skeleton } from '../../components/ui/States';
 import api from '../../lib/api';
+import { apiErrorMessage } from '../../lib/errors';
+import { formatDateTime } from '../../lib/format';
+import { confirmDialog, toast } from '../../stores/ui-store';
+
+type SettingsSource = 'database' | 'environment' | 'none';
 
 interface TelegramSettings {
   botUsername: string;
   pollingEnabled: boolean;
   tokenConfigured: boolean;
   tokenMasked: string;
-  tokenSource: 'database' | 'environment' | 'none';
+  tokenSource: SettingsSource;
 }
 
 interface EskizSettings {
@@ -18,13 +26,13 @@ interface EskizSettings {
   passwordConfigured: boolean;
   passwordMasked: string;
   from: string;
-  credentialsSource: 'database' | 'environment' | 'none';
+  credentialsSource: SettingsSource;
 }
 
 interface IntegrationSettings {
   telegram: TelegramSettings;
   eskiz: EskizSettings;
-  updatedAt?: string;
+  updatedAt?: string | null;
 }
 
 interface SettingsForm {
@@ -36,292 +44,605 @@ interface SettingsForm {
   eskizFrom: string;
 }
 
-const emptyForm: SettingsForm = {
-  telegramBotUsername: '',
-  telegramBotToken: '',
-  telegramPollingEnabled: true,
-  eskizEmail: '',
-  eskizPassword: '',
-  eskizFrom: '4546',
-};
+type FieldErrors = Partial<Record<keyof SettingsForm, string>>;
+
+// Backend cheklovlari (UpdateIntegrationSettingsRequest + IntegrationSettingsService)
+const USERNAME_RE = /^[A-Za-z0-9_]{5,64}$/;
+const TOKEN_RE = /^\d+:[A-Za-z0-9_-]{20,}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_SECRET = 255;
+const MAX_SHORT = 64;
 
 const inputClass =
   'w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-gray-50';
+const inputErrorClass = 'border-red-300 focus:border-red-400 focus:ring-red-200';
 
-function sourceLabel(source: string) {
-  if (source === 'database') return 'Admin paneldan sozlangan';
-  if (source === 'environment') return 'Server konfiguratsiyasidan';
-  return 'Sozlanmagan';
+/** Backend kabi: bo'shliqlar olinadi, boshidagi "@" tashlanadi. */
+function normalizeUsername(value: string) {
+  const trimmed = value.trim();
+  return trimmed.startsWith('@') ? trimmed.slice(1).trim() : trimmed;
 }
 
-function errorMessage(error: unknown) {
-  if (typeof error === 'object' && error !== null && 'response' in error) {
-    const response = (error as { response?: { data?: { message?: string } } }).response;
-    if (response?.data?.message) return response.data.message;
+/**
+ * Serverdagi holatdan forma. Maxfiy maydonlar (token, email, parol) DOIM bo'sh boshlanadi:
+ * server ularni qaytarmaydi, niqob ("********") esa hech qachon forma qiymatiga tushmaydi.
+ */
+function formFromSettings(data: IntegrationSettings): SettingsForm {
+  return {
+    telegramBotUsername: data.telegram.botUsername ?? '',
+    telegramBotToken: '',
+    telegramPollingEnabled: Boolean(data.telegram.pollingEnabled),
+    eskizEmail: '',
+    eskizPassword: '',
+    eskizFrom: data.eskiz.from ?? '',
+  };
+}
+
+/**
+ * Faqat o'zgargan maydonlar yuboriladi. Backendda null/bo'sh qiymat "mavjudini saqla" degani,
+ * shuning uchun tegilmagan maxfiy maydon serverdagi haqiqiy qiymatni hech qachon o'chirmaydi.
+ */
+function buildPayload(form: SettingsForm, base: SettingsForm): Partial<SettingsForm> {
+  const payload: Partial<SettingsForm> = {};
+  const username = normalizeUsername(form.telegramBotUsername);
+  if (username !== base.telegramBotUsername) payload.telegramBotUsername = username;
+  const token = form.telegramBotToken.trim();
+  if (token) payload.telegramBotToken = token;
+  if (form.telegramPollingEnabled !== base.telegramPollingEnabled) {
+    payload.telegramPollingEnabled = form.telegramPollingEnabled;
   }
-  return "Sozlamalarni saqlab bo'lmadi. Qayta urinib ko'ring.";
+  const email = form.eskizEmail.trim();
+  if (email) payload.eskizEmail = email;
+  const password = form.eskizPassword.trim();
+  if (password) payload.eskizPassword = password;
+  const from = form.eskizFrom.trim();
+  if (from !== base.eskizFrom) payload.eskizFrom = from;
+  return payload;
 }
+
+function validate(form: SettingsForm, base: SettingsForm): FieldErrors {
+  const errors: FieldErrors = {};
+
+  const username = normalizeUsername(form.telegramBotUsername);
+  if (!username && base.telegramBotUsername) {
+    // Backend bo'sh qiymatni "eskisini saqla" deb tushunadi — o'chirib bo'lmaydi
+    errors.telegramBotUsername = "Username'ni bo'sh qoldirib bo'lmaydi — yangisini kiriting.";
+  } else if (username && !USERNAME_RE.test(username)) {
+    errors.telegramBotUsername = "5–64 ta lotin harfi, raqam yoki pastki chiziq (_) bo'lishi kerak.";
+  }
+
+  const token = form.telegramBotToken.trim();
+  if (token.length > MAX_SECRET) {
+    errors.telegramBotToken = `Token ${MAX_SECRET} belgidan oshmasligi kerak.`;
+  } else if (token && !TOKEN_RE.test(token)) {
+    errors.telegramBotToken =
+      "Token formati noto'g'ri. BotFather bergan tokenni to'liq nusxalang (123456:ABC... ko'rinishida).";
+  }
+
+  const email = form.eskizEmail.trim();
+  if (email.length > MAX_SECRET) {
+    errors.eskizEmail = `Email ${MAX_SECRET} belgidan oshmasligi kerak.`;
+  } else if (email && !EMAIL_RE.test(email)) {
+    errors.eskizEmail = "Email manzili noto'g'ri.";
+  }
+
+  if (form.eskizPassword.trim().length > MAX_SECRET) {
+    errors.eskizPassword = `Parol ${MAX_SECRET} belgidan oshmasligi kerak.`;
+  }
+
+  const from = form.eskizFrom.trim();
+  if (!from && base.eskizFrom) {
+    errors.eskizFrom = "Jo'natuvchini bo'sh qoldirib bo'lmaydi — yangisini kiriting.";
+  } else if (from.length > MAX_SHORT) {
+    errors.eskizFrom = `Jo'natuvchi ${MAX_SHORT} belgidan oshmasligi kerak.`;
+  }
+
+  return errors;
+}
+
+function sourceHint(source: SettingsSource | undefined) {
+  if (source === 'database') return 'Hozirgi qiymat admin paneldan kiritilgan.';
+  if (source === 'environment') {
+    return "Hozir server konfiguratsiyasidagi qiymat ishlatilmoqda; bu yerda kiritilgani undan ustun bo'ladi.";
+  }
+  return 'Hali sozlanmagan.';
+}
+
+function StatusBadge({ ok, okText, warnText }: { ok: boolean; okText: string; warnText: string }) {
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+        ok ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+      }`}
+    >
+      {ok ? okText : warnText}
+    </span>
+  );
+}
+
+function SectionCard({
+  icon: Icon,
+  iconClass,
+  title,
+  description,
+  badge,
+  children,
+}: {
+  icon: LucideIcon;
+  iconClass: string;
+  title: string;
+  description: string;
+  badge: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={`shrink-0 rounded-lg p-2 ${iconClass}`}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+            <p className="mt-0.5 text-xs text-gray-500">{description}</p>
+          </div>
+        </div>
+        {badge}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({
+  id,
+  label,
+  hint,
+  error,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: React.ReactNode;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
+        {label}
+      </label>
+      {children}
+      {error ? (
+        <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+/** Maxfiy qiymat: sukut bo'yicha yashirin, ko'z tugmasi faqat admin O'ZI yozgan matnni ko'rsatadi. */
+function SecretInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  invalid,
+  maxLength,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  disabled: boolean;
+  invalid: boolean;
+  maxLength: number;
+}) {
+  const [visible, setVisible] = useState(false);
+  // Maydon bo'shaganda (masalan, saqlangandan keyin) yana yashirin holatga qaytadi
+  const shown = visible && value !== '';
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        // Brauzer/parol menejeri adminning o'z login-parolini bu yerga to'ldirib yubormasligi uchun
+        name={`oazis-${id}`}
+        type={shown ? 'text' : 'password'}
+        value={value}
+        onChange={(event) => {
+          if (event.target.value === '') setVisible(false);
+          onChange(event.target.value);
+        }}
+        placeholder={placeholder}
+        className={`${inputClass} pr-10 ${invalid ? inputErrorClass : ''}`}
+        autoComplete="new-password"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        data-lpignore="true"
+        data-1p-ignore="true"
+        maxLength={maxLength}
+        disabled={disabled}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? `${id}-error` : undefined}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        disabled={disabled || value === ''}
+        aria-label={shown ? 'Yashirish' : "Ko'rsatish"}
+        title={shown ? 'Yashirish' : "Ko'rsatish"}
+        aria-pressed={shown}
+        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-gray-400 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="max-w-3xl space-y-6" role="status" aria-label="Sozlamalar yuklanmoqda">
+      {[0, 1].map((card) => (
+        <div key={card} className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="flex-1">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="mt-2 h-3 w-56 max-w-full" />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+          <Skeleton className="mt-5 h-12 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const CONFIGURED_PLACEHOLDER = '•••••••• (saqlangan)';
 
 export default function SettingsPage() {
-  const [form, setForm] = useState<SettingsForm>(emptyForm);
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
+  const [form, setForm] = useState<SettingsForm | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Saqlangandan keyin maxfiy maydonlarni qayta yaratish (ko'rsatish holati ham tozalanadi)
+  const [formVersion, setFormVersion] = useState(0);
+  const requestId = useRef(0);
+  const savingRef = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    api
-      .get('/admin/settings')
-      .then((response) => {
-        if (!active) return;
-        const data = (response.data.data ?? response.data) as IntegrationSettings;
-        setSettings(data);
-        setForm((current) => ({
-          ...current,
-          telegramBotUsername: data.telegram.botUsername ?? '',
-          telegramPollingEnabled: data.telegram.pollingEnabled,
-          eskizFrom: data.eskiz.from || '4546',
-        }));
-      })
-      .catch((error) => {
-        if (active) setMessage({ type: 'error', text: errorMessage(error) });
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    const id = ++requestId.current;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const response = await api.get('/admin/settings');
+      if (id !== requestId.current) return; // eskirgan javob
+      const data = (response.data?.data ?? response.data) as IntegrationSettings | undefined;
+      if (!data?.telegram || !data?.eskiz) throw new Error('unexpected settings response');
+      setSettings(data);
+      setForm(formFromSettings(data));
+      setFormVersion((version) => version + 1);
+    } catch (error) {
+      if (id !== requestId.current) return;
+      // Xatoda forma ko'rsatilmaydi: bo'sh forma "hech narsa sozlanmagan" degan noto'g'ri taassurot beradi
+      setLoadError(apiErrorMessage(error, "Sozlamalarni yuklab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      if (id === requestId.current) setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- birinchi yuklash
+    void load();
+  }, [load]);
+
+  const base = settings ? formFromSettings(settings) : null;
+  const payload = form && base ? buildPayload(form, base) : {};
+  const dirty = Object.keys(payload).length > 0;
+  const errors = form && base ? validate(form, base) : {};
+
+  // Saqlanmagan o'zgarish bilan sahifani yopish/yangilashdan oldin brauzer ogohlantiradi
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
   const updateForm = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => (current ? { ...current, [key]: value } : current));
+  };
+
+  const handleReset = () => {
+    if (!settings) return;
+    setForm(formFromSettings(settings));
+    setFormVersion((version) => version + 1);
   };
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSaving(true);
-    setMessage(null);
+    if (!form || !base || !dirty || savingRef.current) return;
+
+    const firstError = Object.values(errors)[0];
+    if (firstError) {
+      toast.error(firstError);
+      return;
+    }
+
+    // Tasdiqlash oynasi ochiq turganda ham ikkinchi submit o'tmasin
+    savingRef.current = true;
     try {
-      const response = await api.put('/admin/settings', form);
-      const data = (response.data.data ?? response.data) as IntegrationSettings;
-      setSettings(data);
-      setForm((current) => ({
-        ...current,
-        telegramBotToken: '',
-        eskizEmail: '',
-        eskizPassword: '',
-        telegramBotUsername: data.telegram.botUsername ?? current.telegramBotUsername,
-        telegramPollingEnabled: data.telegram.pollingEnabled,
-        eskizFrom: data.eskiz.from || current.eskizFrom,
-      }));
-      setMessage({
-        type: 'success',
-        text: 'Sozlamalar saqlandi. Telegram bot yangi sozlama bilan qayta ishga tushdi.',
-      });
+      if (payload.telegramPollingEnabled === false) {
+        const ok = await confirmDialog({
+          title: "Long polling o'chirilsinmi?",
+          message:
+            "Bot Telegram'dan kelgan xabarlarni qabul qilmay qo'yadi. Keyinroq shu sahifadan qayta yoqishingiz mumkin.",
+          confirmText: "O'chirish",
+          danger: true,
+        });
+        if (!ok) return;
+      }
+
+      setSaving(true);
+      const telegramChanged =
+        'telegramBotToken' in payload || 'telegramBotUsername' in payload || 'telegramPollingEnabled' in payload;
+      const response = await api.put('/admin/settings', payload);
+      const data = (response.data?.data ?? response.data) as IntegrationSettings | undefined;
+      if (data?.telegram && data?.eskiz) {
+        setSettings(data);
+        setForm(formFromSettings(data)); // maxfiy maydonlar tozalanadi
+        setFormVersion((version) => version + 1);
+      } else {
+        void load();
+      }
+      toast.success(
+        telegramChanged
+          ? 'Sozlamalar saqlandi. Telegram bot yangi sozlama bilan qayta ulanmoqda.'
+          : 'Sozlamalar saqlandi.',
+      );
     } catch (error) {
-      setMessage({ type: 'error', text: errorMessage(error) });
+      // Forma va kiritilgan qiymatlar joyida qoladi
+      toast.error(apiErrorMessage(error, "Sozlamalarni saqlab bo'lmadi. Qayta urinib ko'ring."));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
-  if (loading) {
+  const header = (
+    <PageHeader
+      title="Integratsiya sozlamalari"
+      description="Telegram bot va SMS yuborish xizmatini serverni qayta deploy qilmasdan boshqaring."
+    />
+  );
+
+  if (loadError && !loading) {
     return (
-      <div className="flex min-h-64 items-center justify-center text-sm text-gray-500">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Sozlamalar yuklanmoqda...
+      <div>
+        {header}
+        <div className="max-w-3xl rounded-xl border border-gray-200 bg-white">
+          <ErrorState message={loadError} onRetry={() => void load()} />
+        </div>
       </div>
     );
   }
 
+  if (loading || !settings || !form) {
+    return (
+      <div>
+        {header}
+        <SettingsSkeleton />
+      </div>
+    );
+  }
+
+  const { telegram, eskiz } = settings;
+  const eskizReady = eskiz.emailConfigured && eskiz.passwordConfigured;
+
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Integratsiya sozlamalari</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Telegram bot va SMS yuborish xizmatini serverni qayta deploy qilmasdan boshqaring.
-        </p>
-      </div>
+      {header}
 
-      {message && (
-        <div
-          role="alert"
-          className={`mb-5 flex max-w-3xl items-start gap-2 rounded-lg border px-4 py-3 text-sm ${
-            message.type === 'success'
-              ? 'border-green-200 bg-green-50 text-green-700'
-              : 'border-red-200 bg-red-50 text-red-700'
-          }`}
+      <form onSubmit={handleSave} noValidate autoComplete="off" className="max-w-3xl space-y-6">
+        <SectionCard
+          icon={Bot}
+          iconClass="bg-sky-50 text-sky-600"
+          title="Telegram bot"
+          description="O'quvchilar bilan Telegram orqali ishlaydigan bot. Token yoki username o'zgarsa bot avtomatik qayta ulanadi."
+          badge={<StatusBadge ok={telegram.tokenConfigured} okText="Token sozlangan" warnText="Token kiritilmagan" />}
         >
-          {message.type === 'success' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-          <span>{message.text}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSave} className="max-w-3xl space-y-6">
-        <section className="rounded-xl border border-gray-200 bg-white p-6">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-sky-50 p-2 text-sky-600">
-                <Bot className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">Telegram bot</h2>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  Token o'zgarsa long polling avtomatik qayta ulanadi.
-                </p>
-              </div>
-            </div>
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                settings?.telegram.tokenConfigured
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-amber-100 text-amber-700'
-              }`}
-            >
-              {settings?.telegram.tokenConfigured ? 'Token sozlangan' : 'Token kiritilmagan'}
-            </span>
-          </div>
-
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="telegram-username" className="mb-1 block text-sm font-medium text-gray-700">
-                Bot username
-              </label>
+            <Field
+              id="telegram-username"
+              label="Bot username"
+              error={errors.telegramBotUsername}
+              hint="Botga havola (t.me/username) yasash uchun. @ belgisi bilan ham, usiz ham yozish mumkin."
+            >
               <input
                 id="telegram-username"
+                name="oazis-telegram-username"
                 value={form.telegramBotUsername}
                 onChange={(event) => updateForm('telegramBotUsername', event.target.value)}
                 placeholder="oazis_support_bot"
-                className={inputClass}
+                className={`${inputClass} ${errors.telegramBotUsername ? inputErrorClass : ''}`}
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                maxLength={MAX_SHORT + 1}
                 disabled={saving}
+                aria-invalid={errors.telegramBotUsername ? true : undefined}
+                aria-describedby={errors.telegramBotUsername ? 'telegram-username-error' : undefined}
               />
-            </div>
-            <div>
-              <label htmlFor="telegram-token" className="mb-1 block text-sm font-medium text-gray-700">
-                Bot token
-              </label>
-              <input
+            </Field>
+            <Field
+              id="telegram-token"
+              label="Bot token"
+              error={errors.telegramBotToken}
+              hint={
+                telegram.tokenConfigured
+                  ? `Token saqlangan. Bo'sh qoldirilsa o'zgarmaydi; almashtirish uchun yangisini kiriting. ${sourceHint(telegram.tokenSource)}`
+                  : 'BotFather bergan token. Usiz bot ishlamaydi.'
+              }
+            >
+              <SecretInput
+                key={`telegram-token-${formVersion}`}
                 id="telegram-token"
-                type="password"
                 value={form.telegramBotToken}
-                onChange={(event) => updateForm('telegramBotToken', event.target.value)}
-                placeholder={settings?.telegram.tokenMasked || 'BotFather tokenini kiriting'}
-                className={inputClass}
-                autoComplete="new-password"
+                onChange={(value) => updateForm('telegramBotToken', value)}
+                placeholder={telegram.tokenConfigured ? CONFIGURED_PLACEHOLDER : 'BotFather tokenini kiriting'}
                 disabled={saving}
+                invalid={Boolean(errors.telegramBotToken)}
+                maxLength={MAX_SECRET + 1}
               />
-              <p className="mt-1 text-xs text-gray-400">
-                Bo'sh qoldirilsa mavjud token saqlanadi. {sourceLabel(settings?.telegram.tokenSource ?? 'none')}.
-              </p>
-            </div>
+            </Field>
           </div>
 
-          <label className="mt-5 flex cursor-pointer items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-            <span>
+          <label
+            htmlFor="telegram-polling"
+            className="mt-5 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3"
+          >
+            <span className="min-w-0">
               <span className="block text-sm font-medium text-gray-700">Long polling</span>
-              <span className="block text-xs text-gray-500">Bot Telegram xabarlarini qabul qilsin</span>
+              <span className="block text-xs text-gray-500">
+                Yoqilgan bo'lsa bot Telegram xabarlarini qabul qiladi. O'chirilsa bot javob bermaydi.
+              </span>
             </span>
             <input
+              id="telegram-polling"
               type="checkbox"
               checked={form.telegramPollingEnabled}
               onChange={(event) => updateForm('telegramPollingEnabled', event.target.checked)}
-              className="h-4 w-4 accent-[var(--primary)]"
+              className="h-4 w-4 shrink-0 accent-[var(--primary)]"
               disabled={saving}
             />
           </label>
-        </section>
+        </SectionCard>
 
-        <section className="rounded-xl border border-gray-200 bg-white p-6">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-violet-50 p-2 text-violet-600">
-                <MessageSquareText className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">SMS (Eskiz)</h2>
-                <p className="mt-0.5 text-xs text-gray-500">OTP kodlarini yuborish uchun Eskiz kabineti.</p>
-              </div>
-            </div>
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                settings?.eskiz.emailConfigured && settings?.eskiz.passwordConfigured
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-amber-100 text-amber-700'
-              }`}
-            >
-              {settings?.eskiz.emailConfigured && settings?.eskiz.passwordConfigured
-                ? 'Credentials sozlangan'
-                : "To'liq sozlanmagan"}
-            </span>
-          </div>
-
+        <SectionCard
+          icon={MessageSquareText}
+          iconClass="bg-violet-50 text-violet-600"
+          title="SMS (Eskiz)"
+          description="Telefon raqamiga tasdiqlash (OTP) kodlarini yuboradigan Eskiz.uz kabineti."
+          badge={<StatusBadge ok={eskizReady} okText="Kirish ma'lumotlari sozlangan" warnText="To'liq sozlanmagan" />}
+        >
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="eskiz-email" className="mb-1 block text-sm font-medium text-gray-700">
-                Eskiz email
-              </label>
+            <Field
+              id="eskiz-email"
+              label="Eskiz email"
+              error={errors.eskizEmail}
+              hint={
+                eskiz.emailConfigured
+                  ? "Email saqlangan. Bo'sh qoldirilsa o'zgarmaydi."
+                  : 'Eskiz kabinetiga kirish emaili.'
+              }
+            >
               <input
                 id="eskiz-email"
-                type="email"
+                name="oazis-eskiz-account"
+                type="text"
+                inputMode="email"
                 value={form.eskizEmail}
                 onChange={(event) => updateForm('eskizEmail', event.target.value)}
-                placeholder={settings?.eskiz.emailMasked || 'account@example.com'}
-                className={inputClass}
+                placeholder={eskiz.emailConfigured ? CONFIGURED_PLACEHOLDER : 'account@example.com'}
+                className={`${inputClass} ${errors.eskizEmail ? inputErrorClass : ''}`}
                 autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
+                maxLength={MAX_SECRET + 1}
                 disabled={saving}
+                aria-invalid={errors.eskizEmail ? true : undefined}
+                aria-describedby={errors.eskizEmail ? 'eskiz-email-error' : undefined}
               />
-            </div>
-            <div>
-              <label htmlFor="eskiz-password" className="mb-1 block text-sm font-medium text-gray-700">
-                Eskiz parol
-              </label>
-              <input
+            </Field>
+            <Field
+              id="eskiz-password"
+              label="Eskiz parol"
+              error={errors.eskizPassword}
+              hint={
+                eskiz.passwordConfigured
+                  ? "Parol saqlangan. Bo'sh qoldirilsa o'zgarmaydi."
+                  : 'Eskiz kabinetiga kirish paroli.'
+              }
+            >
+              <SecretInput
+                key={`eskiz-password-${formVersion}`}
                 id="eskiz-password"
-                type="password"
                 value={form.eskizPassword}
-                onChange={(event) => updateForm('eskizPassword', event.target.value)}
-                placeholder={settings?.eskiz.passwordMasked || 'Parolni kiriting'}
-                className={inputClass}
-                autoComplete="new-password"
+                onChange={(value) => updateForm('eskizPassword', value)}
+                placeholder={eskiz.passwordConfigured ? CONFIGURED_PLACEHOLDER : 'Parolni kiriting'}
                 disabled={saving}
+                invalid={Boolean(errors.eskizPassword)}
+                maxLength={MAX_SECRET + 1}
               />
-            </div>
-            <div>
-              <label htmlFor="eskiz-from" className="mb-1 block text-sm font-medium text-gray-700">
-                SMS sender
-              </label>
+            </Field>
+            <Field
+              id="eskiz-from"
+              label="SMS jo'natuvchi (sender)"
+              error={errors.eskizFrom}
+              hint="SMS kimdan kelgani ko'rinadigan nom yoki raqam. Eskiz'da tasdiqlangan bo'lishi kerak (standart: 4546)."
+            >
               <input
                 id="eskiz-from"
+                name="oazis-eskiz-from"
                 value={form.eskizFrom}
                 onChange={(event) => updateForm('eskizFrom', event.target.value)}
                 placeholder="4546"
-                className={inputClass}
+                className={`${inputClass} ${errors.eskizFrom ? inputErrorClass : ''}`}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={MAX_SHORT + 1}
                 disabled={saving}
+                aria-invalid={errors.eskizFrom ? true : undefined}
+                aria-describedby={errors.eskizFrom ? 'eskiz-from-error' : undefined}
               />
-            </div>
+            </Field>
           </div>
 
           <div className="mt-4 flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
             <span>
-              Email va parol API orqali ochiq qaytarilmaydi. Maydonlar bo'sh qolsa mavjud credentials saqlanadi.{' '}
-              {sourceLabel(settings?.eskiz.credentialsSource ?? 'none')}.
+              Token, email va parol saqlangandan keyin bu sahifada qayta ko'rsatilmaydi.{' '}
+              {sourceHint(eskiz.credentialsSource)}
             </span>
           </div>
-        </section>
+        </SectionCard>
 
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-gray-400">
-            {settings?.updatedAt
-              ? `Oxirgi o'zgarish: ${new Date(settings.updatedAt).toLocaleString('uz-UZ')}`
-              : "Hali admin paneldan o'zgartirilmagan"}
+            {dirty ? (
+              <span className="font-medium text-amber-600">Saqlanmagan o'zgarishlar bor</span>
+            ) : settings.updatedAt ? (
+              `Oxirgi o'zgarish: ${formatDateTime(settings.updatedAt)}`
+            ) : (
+              "Hali admin paneldan o'zgartirilmagan"
+            )}
           </span>
-          <Button type="submit" disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving ? 'Saqlanmoqda...' : 'Saqlash'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {dirty && (
+              <Button variant="secondary" onClick={handleReset} disabled={saving}>
+                Bekor qilish
+              </Button>
+            )}
+            <Button type="submit" loading={saving} disabled={!dirty}>
+              {saving ? 'Saqlanmoqda...' : 'Saqlash'}
+            </Button>
+          </div>
         </div>
       </form>
     </div>
