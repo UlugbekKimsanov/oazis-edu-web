@@ -345,7 +345,11 @@ function BlankBox({ word, active, state, onTap }: {
   return (
     <span
       role={state === 'idle' ? 'button' : undefined}
+      tabIndex={state === 'idle' ? 0 : undefined}
+      aria-label={state === 'idle' ? `${word} — bankka qaytarish` : undefined}
       onClick={state === 'idle' ? onTap : undefined}
+      // Klaviatura bilan ham qaytarish mumkin (ko'rinish o'zgarmaydi)
+      onKeyDown={state === 'idle' ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(); } } : undefined}
       className={state === 'wrong' ? 'oz-shake' : undefined}
       style={{
         display: 'inline-block', minWidth: 58, padding: '3px 10px', margin: '0 2px',
