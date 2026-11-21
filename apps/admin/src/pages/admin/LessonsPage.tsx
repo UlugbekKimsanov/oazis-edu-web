@@ -253,6 +253,8 @@ export default function LessonsPage() {
   const [pendingCover, setPendingCover] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState('');
   const coverUrlRef = useRef('');
+  // Serverdagi muqovani olib tashlash jarayoni
+  const [coverRemoving, setCoverRemoving] = useState(false);
   // Butun saqlash jarayoni (PUT/POST + video + muqova) — ikki marta bosishdan himoya
   const [saving, setSaving] = useState(false);
   // Fayl tanlashdagi xato (hajm/tur) — tuzatilmaguncha saqlash bloklanadi
@@ -1114,6 +1116,31 @@ export default function LessonsPage() {
     setCover(file);
   };
 
+  // Serverga yuklangan muqovani olib tashlash (faqat mavjud darsni tahrirlashda)
+  const removeLessonCover = async () => {
+    const target = editItem;
+    if (!target?.coverImage || saving || coverRemoving) return;
+    const ok = await ask({
+      title: 'Muqova rasmi olib tashlansinmi?',
+      message: `«${target.name}» darsining muqova rasmi serverdan o'chiriladi. Bu amalni qaytarib bo'lmaydi.`,
+      confirmText: 'Olib tashlash',
+      danger: true,
+    });
+    if (!ok) return;
+    setCoverRemoving(true);
+    try {
+      const res = await api.delete(`/admin/lessons/${target.id}/cover`);
+      const updated = (res.data?.data ?? null) as Partial<Lesson> | null;
+      setEditItem((cur) => (cur && cur.id === target.id ? { ...cur, ...(updated ?? {}), coverImage: undefined } : cur));
+      toast.success('Muqova rasmi olib tashlandi');
+      void refreshLessons();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Muqovani olib tashlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      setCoverRemoving(false);
+    }
+  };
+
   const detailYoutubeId = detailLesson?.youtubeId || '';
 
   return (
@@ -1460,7 +1487,7 @@ export default function LessonsPage() {
           </div>
           <div>
             <p className="block text-sm font-medium text-gray-700 mb-1">Muqova rasmi — oboloshka (ixtiyoriy)</p>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="w-16 h-16 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
                 {coverPreview
                   ? <img src={coverPreview} alt="" className="w-full h-full object-cover" />
@@ -1473,6 +1500,12 @@ export default function LessonsPage() {
                 <input type="file" accept="image/*" className="hidden" disabled={saving}
                   onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onCoverSelected(f); }} />
               </label>
+              {!pendingCover && editItem?.coverImage && (
+                <button type="button" onClick={() => void removeLessonCover()} disabled={saving || coverRemoving}
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
+                  <Trash2 size={14} /> {coverRemoving ? 'Olib tashlanmoqda…' : 'Olib tashlash'}
+                </button>
+              )}
               {pendingCover && !saving && (
                 <button type="button" onClick={() => setCover(null)} className={`${iconBtnCls} hover:text-red-500`}
                   title="Tanlangan rasmni bekor qilish" aria-label="Tanlangan rasmni bekor qilish"><X size={15} /></button>

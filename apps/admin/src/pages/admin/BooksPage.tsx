@@ -127,6 +127,8 @@ export default function BooksPage() {
   // Yaratishda tanlangan kitob fayli (PDF) — saqlashda yuklanadi
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [fileUploading, setFileUploading] = useState(false);
+  // Serverdagi PDF yoki muqovani olib tashlash jarayoni
+  const [removing, setRemoving] = useState<'file' | 'cover' | null>(null);
   const [filePct, setFilePct] = useState<number | null>(null);
   const [form, setForm] = useState<BookForm>(emptyForm());
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -194,7 +196,7 @@ export default function BooksPage() {
     (categoryFilter === 'all' || b.category === categoryFilter)
     && `${b.title ?? ''} ${b.author ?? ''}`.toLowerCase().includes(query));
 
-  const busyUpload = uploading || galleryUploading || fileUploading;
+  const busyUpload = uploading || galleryUploading || fileUploading || removing !== null;
   const busy = saving || busyUpload;
 
   const setField = <K extends keyof BookForm>(key: K, value: BookForm[K]) => {
@@ -468,6 +470,42 @@ export default function BooksPage() {
     } finally {
       setFileUploading(false);
       setFilePct(null);
+    }
+  };
+
+  // Serverga yuklangan PDF yoki muqovani olib tashlash (faqat tahrirlashda)
+  const removeStored = async (kind: 'file' | 'cover') => {
+    const target = editItem;
+    if (!target || busy) return;
+    const ok = await confirmDialog(kind === 'file'
+      ? {
+          title: 'Kitob fayli olib tashlansinmi?',
+          message: `«${target.title}» kitobining PDF fayli serverdan o'chiriladi. Yangi fayl yuklanmaguncha kitob ilovada ochilmaydi. Bu amalni qaytarib bo'lmaydi.`,
+          confirmText: 'Olib tashlash',
+          danger: true,
+        }
+      : {
+          title: 'Muqova rasmi olib tashlansinmi?',
+          message: `«${target.title}» kitobining muqova rasmi serverdan o'chiriladi. Bu amalni qaytarib bo'lmaydi.`,
+          confirmText: 'Olib tashlash',
+          danger: true,
+        });
+    if (!ok) return;
+    setRemoving(kind);
+    try {
+      const updated = unwrap<AdminBook | null>(await api.delete(`/admin/books/${target.id}/${kind}`));
+      const cleared: Partial<AdminBook> = kind === 'file' ? { filePath: null } : { coverImage: undefined, coverUrl: undefined };
+      // Javobda entity kelmasa ham forma holati yangilanadi
+      const next: AdminBook = updated && typeof updated.id === 'number' ? { ...updated, ...cleared } : { ...target, ...cleared };
+      setEditItem((cur) => (cur && cur.id === target.id ? next : cur));
+      toast.success(kind === 'file' ? 'PDF fayl olib tashlandi' : 'Muqova rasmi olib tashlandi');
+      void load(true);
+    } catch (e) {
+      toast.error(apiErrorMessage(e, kind === 'file'
+        ? "PDF faylni olib tashlab bo'lmadi. Qayta urinib ko'ring."
+        : "Muqovani olib tashlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      setRemoving(null);
     }
   };
 
@@ -776,6 +814,12 @@ export default function BooksPage() {
                       if (f) void onBookFilePicked(f);
                     }} />
                 </label>
+                {editItem?.filePath && (
+                  <button type="button" disabled={busy} onClick={() => void removeStored('file')}
+                    className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
+                    <Trash2 size={14} /> {removing === 'file' ? 'Olib tashlanmoqda…' : 'Olib tashlash'}
+                  </button>
+                )}
               </div>
               {fileUploading && filePct !== null && (
                 <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100" role="progressbar" aria-valuenow={filePct} aria-valuemin={0} aria-valuemax={100}>
@@ -811,6 +855,12 @@ export default function BooksPage() {
                     if (f) void onCoverPicked(f);
                   }} />
               </label>
+              {editItem && editCover && (
+                <button type="button" disabled={busy} onClick={() => void removeStored('cover')}
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
+                  <Trash2 size={14} /> {removing === 'cover' ? 'Olib tashlanmoqda…' : 'Olib tashlash'}
+                </button>
+              )}
               {!editItem && pendingCoverUrl && !busy && (
                 <button type="button"
                   onClick={() => { dropUrl(pendingCoverUrl); setPendingCover(null); setPendingCoverUrl(null); }}

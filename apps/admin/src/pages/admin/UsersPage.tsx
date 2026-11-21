@@ -347,10 +347,9 @@ export default function UsersPage() {
       e.phone = 'Bu telefon raqam boshqa foydalanuvchida band';
     }
 
-    if (!editUser) {
-      if (!form.password) e.password = 'Parolni kiriting';
-      else if (form.password.length < MIN_PASSWORD) e.password = `Parol kamida ${MIN_PASSWORD} ta belgidan iborat bo'lsin`;
-    }
+    // Yaratishda parol majburiy; tahrirlashda faqat kiritilgan bo'lsa almashtiriladi
+    if (!editUser && !form.password) e.password = 'Parolni kiriting';
+    else if (form.password && form.password.length < MIN_PASSWORD) e.password = `Parol kamida ${MIN_PASSWORD} ta belgidan iborat bo'lsin`;
     // users.specialization — VARCHAR(255)
     if (form.role === 'TEACHER' && specLangs.join(', ').length > 255) e.specialization = "Juda ko'p til tanlandi";
     return { errors: e, phone: phone ?? '' };
@@ -377,8 +376,9 @@ export default function UsersPage() {
     setSaving(true);
     try {
       if (editUser) {
-        await api.put(`/admin/users/${editUser.id}`, base);
-        toast.success("O'zgarishlar saqlandi");
+        // Parol faqat kiritilgan bo'lsa yuboriladi — bo'sh bo'lsa server eskisini qoldiradi
+        await api.put(`/admin/users/${editUser.id}`, form.password ? { ...base, password: form.password } : base);
+        toast.success(form.password ? "O'zgarishlar saqlandi, parol almashtirildi" : "O'zgarishlar saqlandi");
       } else {
         await api.post('/admin/users', { ...base, password: form.password });
         toast.success("Foydalanuvchi qo'shildi");
@@ -761,35 +761,37 @@ export default function UsersPage() {
                 : specLangs.length > 0 && <p className="text-xs text-gray-500 mt-1">Tanlangan: {specLangs.join(', ')}</p>}
             </div>
           )}
-          {editUser ? (
-            <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-              Parol bu yerdan o'zgartirilmaydi — foydalanuvchi ilovaga emailiga keladigan kod orqali kira oladi.
-            </p>
-          ) : (
-            <Field id={`${uid}-password`} label="Parol" required error={errors.password} hint={`Kamida ${MIN_PASSWORD} ta belgi.`}>
-              <div className="relative">
-                <input
-                  id={`${uid}-password`}
-                  type={showPassword ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={(e) => setField('password', e.target.value)}
-                  maxLength={72}
-                  autoComplete="new-password"
-                  aria-invalid={!!errors.password}
-                  className={`${inputCls(errors.password)} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? 'Parolni yashirish' : "Parolni ko'rsatish"}
-                  title={showPassword ? 'Parolni yashirish' : "Parolni ko'rsatish"}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </Field>
-          )}
+          <Field
+            id={`${uid}-password`}
+            label={editUser ? 'Yangi parol (ixtiyoriy)' : 'Parol'}
+            required={!editUser}
+            error={errors.password}
+            hint={editUser
+              ? `Bo'sh qoldirilsa parol o'zgarmaydi. Kamida ${MIN_PASSWORD} ta belgi.`
+              : `Kamida ${MIN_PASSWORD} ta belgi.`}
+          >
+            <div className="relative">
+              <input
+                id={`${uid}-password`}
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={(e) => setField('password', e.target.value)}
+                maxLength={72}
+                autoComplete="new-password"
+                aria-invalid={!!errors.password}
+                className={`${inputCls(errors.password)} pr-10`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Parolni yashirish' : "Parolni ko'rsatish"}
+                title={showPassword ? 'Parolni yashirish' : "Parolni ko'rsatish"}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </Field>
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={closeModal} disabled={saving}>Bekor qilish</Button>
             <Button type="submit" loading={saving}>{editUser ? 'Saqlash' : 'Yaratish'}</Button>

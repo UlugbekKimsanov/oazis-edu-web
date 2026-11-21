@@ -89,6 +89,8 @@ export default function CoursesPage() {
   // Tanlangan, lekin hali yuklanmagan muqova (saqlashda yuklanadi)
   const [cover, setCover] = useState<{ file: File; url: string } | null>(null);
   const coverUrlRef = useRef<string | null>(null);
+  // Serverdagi muqovani olib tashlash jarayoni
+  const [coverRemoving, setCoverRemoving] = useState(false);
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -363,6 +365,32 @@ export default function CoursesPage() {
     setModalOpen(false);
     setPendingCover(null);
     void load(true);
+  };
+
+  // Serverga yuklangan muqovani olib tashlash (faqat mavjud kursni tahrirlashda)
+  const removeCover = async () => {
+    const target = editItem;
+    if (!target?.coverImage || saving || coverRemoving) return;
+    const ok = await confirmDialog({
+      title: 'Muqova rasmi olib tashlansinmi?',
+      message: `«${target.name}» kursining muqova rasmi serverdan o'chiriladi va kurs kartasi muqovasiz ko'rinadi. Bu amalni qaytarib bo'lmaydi.`,
+      confirmText: 'Olib tashlash',
+      danger: true,
+    });
+    if (!ok) return;
+    setCoverRemoving(true);
+    try {
+      const res = await api.delete(`/admin/courses/${target.id}/cover`);
+      if (!alive.current) return;
+      const updated = (res.data?.data ?? null) as Partial<Course> | null;
+      setEditItem((cur) => (cur && cur.id === target.id ? { ...cur, ...(updated ?? {}), coverImage: undefined } : cur));
+      toast.success('Muqova rasmi olib tashlandi');
+      void load(true);
+    } catch (err) {
+      if (alive.current) toast.error(apiErrorMessage(err, "Muqovani olib tashlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      if (alive.current) setCoverRemoving(false);
+    }
   };
 
   const handleDelete = async (c: Course) => {
@@ -850,6 +878,16 @@ export default function CoursesPage() {
                     onChange={onPickCover}
                   />
                 </label>
+                {!cover && editItem?.coverImage && (
+                  <button
+                    type="button"
+                    onClick={() => void removeCover()}
+                    disabled={saving || coverRemoving}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm text-gray-500 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 size={14} /> {coverRemoving ? 'Olib tashlanmoqda…' : 'Olib tashlash'}
+                  </button>
+                )}
                 {cover && (
                   <>
                     <span className="min-w-0 max-w-[14rem] truncate text-xs text-gray-500" title={cover.file.name}>

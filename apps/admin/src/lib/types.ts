@@ -11,6 +11,8 @@ export interface User {
   ball?: number;
   avatarUrl?: string;
   createdAt?: string;
+  /** Bosh admin (login javobida keladi) */
+  isDefault?: boolean | null;
 }
 
 export interface Language {
@@ -37,6 +39,7 @@ export interface BreakGroup {
   name: string;
   icon?: string;
   backgroundImage?: string;
+  orderIndex?: number;
   tracks?: BreakTrack[];
 }
 

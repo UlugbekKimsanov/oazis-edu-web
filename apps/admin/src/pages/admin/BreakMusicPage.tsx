@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Music, Trash2, Plus, RefreshCw, Loader2 } from 'lucide-react';
+import { Image as ImageIcon, Music, Trash2, Plus, RefreshCw, Loader2, Pencil } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
+import Modal from '../../components/ui/Modal';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
 import api, { fileUrl } from '../../lib/api';
 import { apiErrorMessage } from '../../lib/errors';
@@ -19,6 +20,15 @@ const MAX_IMAGE_MB = 10;
 const MB = 1024 * 1024;
 // break_tracks.title — VARCHAR(150)
 const MAX_TITLE_LENGTH = 150;
+// Guruh nomi va ikonkasi chegaralari — server ham shuni tekshiradi
+const MAX_GROUP_NAME = 60;
+const MAX_GROUP_ICON = 8;
+
+const inputCls =
+  'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]';
+const inputErrCls = ' border-red-300 focus:border-red-400 focus:ring-red-200';
+const headerIconBtnCls =
+  'p-1.5 rounded-lg bg-white/90 text-gray-700 hover:bg-white disabled:opacity-70 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60';
 
 const extensionOf = (name: string) => {
   const dot = name.lastIndexOf('.');
@@ -60,18 +70,34 @@ function parseGroups(payload: unknown): BreakGroup[] {
   return Array.isArray(list) ? (list as BreakGroup[]) : [];
 }
 
+/** Javobdan bitta guruhni ajratadi; entity kelmagan bo'lsa null. */
+function parseGroup(payload: unknown): BreakGroup | null {
+  const body = payload as { data?: unknown } | null;
+  const g = (body?.data ?? payload) as Partial<BreakGroup> | null;
+  return g && typeof g === 'object' && typeof g.id === 'number' ? (g as BreakGroup) : null;
+}
+
+interface GroupForm { name: string; icon: string }
+interface GroupFormErrors { name?: string; icon?: string }
+
 interface CardProps {
   group: BreakGroup;
   bgBusy: boolean;
+  /** Guruh o'chirilmoqda — karta bloklanadi */
+  removing: boolean;
   upload?: UploadProgress;
   deletingIds: ReadonlySet<number>;
   onPickBg: (group: BreakGroup, file: File) => void;
   onPickTracks: (group: BreakGroup, files: File[]) => void;
   onDeleteTrack: (group: BreakGroup, track: BreakTrack) => void;
   onPlay: (el: HTMLAudioElement) => void;
+  onEdit: (group: BreakGroup) => void;
+  onDelete: (group: BreakGroup) => void;
 }
 
-function GroupCard({ group: g, bgBusy, upload, deletingIds, onPickBg, onPickTracks, onDeleteTrack, onPlay }: CardProps) {
+function GroupCard({
+  group: g, bgBusy, removing, upload, deletingIds, onPickBg, onPickTracks, onDeleteTrack, onPlay, onEdit, onDelete,
+}: CardProps) {
   const bgInput = useRef<HTMLInputElement>(null);
   const trackInput = useRef<HTMLInputElement>(null);
   // Rasm yuklanmasa (fayl serverdan o'chgan) — singan ikonka o'rniga gradient qoladi
@@ -80,7 +106,10 @@ function GroupCard({ group: g, bgBusy, upload, deletingIds, onPickBg, onPickTrac
   const bgSrc = g.backgroundImage && g.backgroundImage !== brokenBg ? fileUrl(g.backgroundImage) : '';
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden min-w-0">
+    <div
+      className={`bg-white rounded-2xl border border-gray-100 overflow-hidden min-w-0 ${removing ? 'opacity-60 pointer-events-none' : ''}`}
+      aria-busy={removing || undefined}
+    >
       {/* Header — fon rasmi */}
       <div className="relative h-28 bg-gradient-to-br from-[var(--primary)]/40 to-gray-300">
         {bgSrc && (
@@ -91,9 +120,31 @@ function GroupCard({ group: g, bgBusy, upload, deletingIds, onPickBg, onPickTrac
             onError={() => setBrokenBg(g.backgroundImage ?? null)}
           />
         )}
-        <div className="absolute inset-0 bg-black/25 flex items-center gap-2 px-4 pb-6">
+        <div className="absolute inset-0 bg-black/25 flex items-center gap-2 pl-4 pr-20 pb-6">
           {g.icon && <span className="text-2xl shrink-0" aria-hidden="true">{g.icon}</span>}
           <span className="text-white font-bold text-lg truncate" title={g.name}>{g.name}</span>
+        </div>
+        <div className="absolute top-2 right-2 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onEdit(g)}
+            disabled={removing}
+            aria-label={`«${g.name}» guruhini tahrirlash`}
+            title="Tahrirlash"
+            className={headerIconBtnCls}
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(g)}
+            disabled={removing}
+            aria-label={`«${g.name}» guruhini o'chirish`}
+            title="O'chirish"
+            className={`${headerIconBtnCls} hover:text-red-600`}
+          >
+            {removing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+          </button>
         </div>
         <input
           ref={bgInput}
@@ -212,6 +263,13 @@ export default function BreakMusicPage() {
   const [bgBusy, setBgBusy] = useState<ReadonlySet<number>>(new Set());
   const [uploads, setUploads] = useState<Record<number, UploadProgress>>({});
   const [deletingIds, setDeletingIds] = useState<ReadonlySet<number>>(new Set());
+  // Guruh yaratish / tahrirlash oynasi
+  const [formOpen, setFormOpen] = useState(false);
+  const [editGroup, setEditGroup] = useState<BreakGroup | null>(null);
+  const [form, setForm] = useState<GroupForm>({ name: '', icon: '' });
+  const [formErrors, setFormErrors] = useState<GroupFormErrors>({});
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [removingGroups, setRemovingGroups] = useState<ReadonlySet<number>>(new Set());
   const requestId = useRef(0);
   // Bir guruhga ikki marta parallel yuklash boshlanib ketmasligi uchun (state kechikib yangilanadi)
   const uploadingGroups = useRef(new Set<number>());
@@ -367,6 +425,98 @@ export default function BreakMusicPage() {
     }
   };
 
+  const openCreate = () => {
+    setEditGroup(null);
+    setForm({ name: '', icon: '' });
+    setFormErrors({});
+    setFormOpen(true);
+  };
+
+  const openEdit = (group: BreakGroup) => {
+    setEditGroup(group);
+    setForm({ name: group.name ?? '', icon: group.icon ?? '' });
+    setFormErrors({});
+    setFormOpen(true);
+  };
+
+  const closeForm = () => { if (!savingGroup) setFormOpen(false); };
+
+  const setFormField = (key: keyof GroupForm, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setFormErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const saveGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingGroup) return;
+    const name = form.name.trim();
+    const icon = form.icon.trim();
+    const errs: GroupFormErrors = {};
+    if (!name) errs.name = 'Guruh nomini kiriting';
+    else if (name.length > MAX_GROUP_NAME) errs.name = `Nom ${MAX_GROUP_NAME} belgidan oshmasin`;
+    if (icon.length > MAX_GROUP_ICON) errs.icon = 'Ikonka juda uzun — bitta emoji kiriting';
+    setFormErrors(errs);
+    if (errs.name || errs.icon) return;
+
+    const target = editGroup;
+    setSavingGroup(true);
+    try {
+      if (target) {
+        const res = await api.put(`/admin/break-groups/${target.id}`, { name, icon });
+        const saved = parseGroup(res.data);
+        // Javobda tracks kelmasligi mumkin — mavjud musiqalar saqlab qolinadi
+        patchGroup(target.id, (g) => ({ ...g, ...(saved ?? { name, icon }), tracks: saved?.tracks ?? g.tracks }));
+        toast.success('Guruh saqlandi');
+      } else {
+        const res = await api.post('/admin/break-groups', icon ? { name, icon } : { name });
+        const saved = parseGroup(res.data);
+        if (saved) {
+          setGroups((prev) => [...(prev ?? []).filter((g) => g.id !== saved.id), { ...saved, tracks: saved.tracks ?? [] }]);
+        } else {
+          void load(true);
+        }
+        toast.success(`«${name}» guruhi qo'shildi`);
+      }
+      setFormOpen(false);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, target ? "Guruhni saqlab bo'lmadi." : "Guruhni qo'shib bo'lmadi."));
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const deleteGroup = async (group: BreakGroup) => {
+    if (removingGroups.has(group.id)) return;
+    if (uploadingGroups.current.has(group.id) || bgBusy.has(group.id)) {
+      toast.info('Bu guruhga fayl yuklanmoqda — tugashini kuting.');
+      return;
+    }
+    const count = group.tracks?.length ?? 0;
+    const ok = await confirmDialog({
+      title: "Guruh o'chirilsinmi?",
+      message:
+        (count > 0
+          ? `«${group.name}» guruhi, undagi ${count} ta musiqa va barcha fayllari butunlay o'chiriladi.`
+          : `«${group.name}» guruhi butunlay o'chiriladi (ichida musiqa yo'q).`) +
+        " Guruh mobil ilovadan ham yo'qoladi. Bu amalni qaytarib bo'lmaydi.",
+      confirmText: "O'chirish",
+      danger: true,
+    });
+    if (!ok) return;
+    setRemovingGroups((prev) => new Set(prev).add(group.id));
+    try {
+      await api.delete(`/admin/break-groups/${group.id}`);
+      // O'chirilgan guruh musiqasi ijro etilayotgan bo'lsa — to'xtatiladi
+      playing.current?.pause();
+      setGroups((prev) => prev?.filter((g) => g.id !== group.id) ?? prev);
+      toast.success(`«${group.name}» guruhi o'chirildi`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Guruhni o'chirib bo'lmadi."));
+    } finally {
+      setRemovingGroups((prev) => { const next = new Set(prev); next.delete(group.id); return next; });
+    }
+  };
+
   // Bir vaqtda faqat bitta musiqa ijro etiladi
   const handlePlay = (el: HTMLAudioElement) => {
     if (playing.current && playing.current !== el) playing.current.pause();
@@ -386,9 +536,14 @@ export default function BreakMusicPage() {
           </>
         }
         actions={
-          <Button variant="secondary" onClick={refresh} loading={refreshing} disabled={groups === null}>
-            {!refreshing && <RefreshCw size={14} />} Yangilash
-          </Button>
+          <>
+            <Button variant="secondary" onClick={refresh} loading={refreshing} disabled={groups === null}>
+              {!refreshing && <RefreshCw size={14} />} Yangilash
+            </Button>
+            <Button onClick={openCreate} disabled={groups === null}>
+              <Plus size={15} /> Guruh qo'shish
+            </Button>
+          </>
         }
       />
 
@@ -413,8 +568,9 @@ export default function BreakMusicPage() {
         <div className="rounded-2xl border border-gray-100 bg-white">
           <EmptyState
             icon={Music}
-            title="Tanaffus guruhlari topilmadi"
-            description="Guruhlar tizimda oldindan yaratiladi (Okean, O'rmon va boshqalar). Ro'yxat bo'sh bo'lsa, dasturchiga murojaat qiling."
+            title="Tanaffus guruhlari yo'q"
+            description="Birinchi guruhni qo'shing (masalan: Okean, O'rmon), so'ng unga fon rasmi va musiqalar yuklang."
+            action={<Button onClick={openCreate}><Plus size={15} /> Guruh qo'shish</Button>}
           />
         </div>
       ) : (
@@ -424,16 +580,75 @@ export default function BreakMusicPage() {
               key={g.id}
               group={g}
               bgBusy={bgBusy.has(g.id)}
+              removing={removingGroups.has(g.id)}
               upload={uploads[g.id]}
               deletingIds={deletingIds}
               onPickBg={uploadBg}
               onPickTracks={uploadTracks}
               onDeleteTrack={deleteTrack}
               onPlay={handlePlay}
+              onEdit={openEdit}
+              onDelete={deleteGroup}
             />
           ))}
         </div>
       )}
+
+      <Modal
+        open={formOpen}
+        onClose={closeForm}
+        closeDisabled={savingGroup}
+        maxWidth="max-w-md"
+        title={editGroup ? 'Guruhni tahrirlash' : "Guruh qo'shish"}
+      >
+        <form onSubmit={saveGroup} noValidate className="space-y-4">
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label htmlFor="break-group-name" className="block text-sm font-medium text-gray-700">
+                Nomi <span className="text-red-500" aria-hidden="true">*</span>
+              </label>
+              <span className="text-xs text-gray-400">{form.name.trim().length}/{MAX_GROUP_NAME}</span>
+            </div>
+            <input
+              id="break-group-name"
+              value={form.name}
+              maxLength={MAX_GROUP_NAME}
+              onChange={(e) => setFormField('name', e.target.value)}
+              disabled={savingGroup}
+              aria-invalid={!!formErrors.name}
+              className={inputCls + (formErrors.name ? inputErrCls : '')}
+              placeholder="Masalan: Okean"
+            />
+            {formErrors.name && <p role="alert" className="mt-1 text-xs text-red-600">{formErrors.name}</p>}
+          </div>
+          <div>
+            <label htmlFor="break-group-icon" className="mb-1 block text-sm font-medium text-gray-700">
+              Ikonka <span className="font-normal text-gray-400">(ixtiyoriy)</span>
+            </label>
+            <input
+              id="break-group-icon"
+              value={form.icon}
+              onChange={(e) => setFormField('icon', e.target.value)}
+              disabled={savingGroup}
+              aria-invalid={!!formErrors.icon}
+              className={inputCls + ' max-w-[8rem] text-lg' + (formErrors.icon ? inputErrCls : '')}
+              placeholder="🌊"
+            />
+            {formErrors.icon
+              ? <p role="alert" className="mt-1 text-xs text-red-600">{formErrors.icon}</p>
+              : <p className="mt-1 text-xs text-gray-400">Bitta emoji — guruh nomi yonida ko'rsatiladi.</p>}
+          </div>
+          {!editGroup && (
+            <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              Fon rasmi va musiqalar guruh yaratilgach, uning kartasidan yuklanadi.
+            </p>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={closeForm} disabled={savingGroup}>Bekor qilish</Button>
+            <Button type="submit" loading={savingGroup}>{editGroup ? 'Saqlash' : "Qo'shish"}</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

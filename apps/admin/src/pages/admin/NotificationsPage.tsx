@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Send, Users as UsersIcon, GraduationCap, UserCheck, BookOpen, UserPlus,
-  Bell, ImagePlus, X, AlertTriangle, Search, Loader2, History,
+  Bell, ImagePlus, X, AlertTriangle, Search, Loader2, History, RefreshCw,
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
@@ -41,12 +41,19 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 // Tanlash ro'yxatida bir vaqtda chiziladigan qatorlar soni (minglab foydalanuvchida qotmasligi uchun)
 const USER_ROWS_LIMIT = 200;
 
-interface SentItem {
+const HISTORY_LIMIT = 50;
+
+/** GET /admin/notifications/history qatori */
+interface HistoryItem {
   id: number;
-  title: string;
-  audience: string;
-  sent: number;
-  at: string;
+  title?: string | null;
+  body?: string | null;
+  /** To'liq URL yoki /files/... yo'li */
+  image?: string | null;
+  target?: Target | null;
+  courseId?: number | null;
+  recipientCount?: number | null;
+  createdAt?: string | null;
 }
 
 const unwrapList = <T,>(res: { data?: { data?: unknown } | unknown }): T[] => {
@@ -72,13 +79,15 @@ export default function NotificationsPage() {
   const [image, setImage] = useState<string | null>(null);
   const [imgUploading, setImgUploading] = useState(false);
   const [uncertain, setUncertain] = useState<string | null>(null);
-  const [sentLog, setSentLog] = useState<SentItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
 
   // State yangilanishini kutmasdan ikkinchi bosishni to'sadi (ikki marta yuborilmasin)
   const sendingRef = useRef(false);
   const loadId = useRef(0);
   const uploadId = useRef(0);
-  const logId = useRef(0);
+  const historyId = useRef(0);
 
   const load = useCallback(async () => {
     const id = ++loadId.current;
@@ -106,10 +115,44 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  /** silent=true — ro'yxat joyida qoladi, xato faqat toast bilan aytiladi. */
+  const loadHistory = useCallback(async (silent = false) => {
+    const id = ++historyId.current;
+    try {
+      const res = await api.get('/admin/notifications/history', { params: { limit: HISTORY_LIMIT } });
+      if (id !== historyId.current) return; // eskirgan javob
+      setHistory(unwrapList<HistoryItem>(res));
+      setHistoryError(null);
+    } catch (err) {
+      if (id !== historyId.current) return;
+      const message = apiErrorMessage(err, "Yuborilganlar tarixini yuklab bo'lmadi.");
+      if (silent) toast.error(message);
+      else setHistoryError(message);
+    } finally {
+      if (id === historyId.current) setHistoryRefreshing(false);
+    }
+  }, []);
+
   useEffect(() => {
+    const ids = historyId;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- boshlang'ich yuklash; setState faqat javob kelgach chaqiriladi
     void load();
-  }, [load]);
+    void loadHistory();
+    return () => {
+      ids.current++; // sahifadan chiqilgach kelgan javob e'tiborga olinmaydi
+    };
+  }, [load, loadHistory]);
+
+  const retryHistory = () => {
+    setHistoryError(null);
+    setHistory(null);
+    void loadHistory();
+  };
+
+  const refreshHistory = () => {
+    setHistoryRefreshing(true);
+    void loadHistory(true);
+  };
 
   const retryLoad = () => {
     setCoursesError(null);
@@ -163,6 +206,22 @@ export default function NotificationsPage() {
       case 'USERS': return 'Tanlangan foydalanuvchilarga';
     }
   })();
+  /** Tarix qatoridagi "kimga" yorlig'i */
+  const historyTarget = (h: HistoryItem): string => {
+    switch (h.target) {
+      case 'ALL': return 'Barchaga';
+      case 'STUDENTS': return "O'quvchilarga";
+      case 'TEACHERS': return "O'qituvchilarga";
+      case 'USERS': return 'Tanlangan foydalanuvchilarga';
+      case 'COURSE': {
+        if (h.courseId == null) return 'Kurs';
+        const name = courses?.find((c) => c.id === h.courseId)?.name;
+        return name ? `«${name}» kursi` : `Kurs #${h.courseId}`;
+      }
+      default: return '—';
+    }
+  };
+
   const countLabel = recipientCount != null ? `${formatNumber(recipientCount)} ta qabul qiluvchi` : null;
 
   // ── Tekshiruv ────────────────────────────────────────────
@@ -240,10 +299,7 @@ export default function NotificationsPage() {
 
       if (sent > 0) toast.success(`${formatNumber(sent)} ta foydalanuvchiga yuborildi`);
       else toast.info("Xabar hech kimga yuborilmadi: qabul qiluvchi topilmadi.");
-      setSentLog((prev) => [
-        { id: ++logId.current, title: cleanTitle, audience: audienceLabel, sent, at: new Date().toISOString() },
-        ...prev,
-      ].slice(0, 20));
+      void loadHistory(true);
       setTitle('');
       setBody('');
       setSelectedUsers([]);
@@ -256,8 +312,10 @@ export default function NotificationsPage() {
       if (!status || status >= 500) {
         setUncertain(
           "Serverdan aniq javob olinmadi. Xabar to'liq yoki qisman yuborilgan bo'lishi mumkin — " +
-          "qayta yuborishdan oldin ilovada (Bildirishnomalar bo'limida) tekshiring, aks holda o'quvchilar xabarni ikki marta oladi.",
+          "qayta yuborishdan oldin pastdagi «Yuborilganlar tarixi»ni tekshiring, aks holda o'quvchilar xabarni ikki marta oladi.",
         );
+        // Xabar yozilgan bo'lsa tarixda ko'rinadi
+        void loadHistory(true);
       }
       toast.error(apiErrorMessage(err, "Bildirishnomani yuborib bo'lmadi."));
     } finally {
@@ -572,32 +630,63 @@ export default function NotificationsPage() {
               Ro'yxatda matnning faqat 2 qatori ko'rinadi. Push faqat ilovada bildirishnomaga ruxsat bergan qurilmalarga boradi; qolganlar xabarni ilova ichida ko'radi.
             </p>
           </div>
-
-          {/* Shu seansda yuborilganlar (backendda umumiy tarix endpointi yo'q) */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <p className="mb-1 text-sm font-medium text-gray-700">Hozirgina yuborilganlar</p>
-            {sentLog.length === 0 ? (
-              <EmptyState
-                icon={History}
-                title="Hali hech narsa yuborilmadi"
-                description="Bu yerda faqat shu sahifa ochiq turganida yuborgan xabarlaringiz ko'rinadi."
-                className="!py-6"
-              />
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {sentLog.map((s) => (
-                  <li key={s.id} className="py-2.5">
-                    <p className="truncate text-sm font-medium text-gray-800" title={s.title}>{s.title}</p>
-                    <p className="mt-0.5 break-words text-xs text-gray-500">
-                      {s.audience} · {formatNumber(s.sent)} ta · {formatDateTime(s.at)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
       </div>
+
+      {/* Yuborilganlar tarixi — serverdan, yangidan eskiga */}
+      <section aria-labelledby="notif-history-title" className="mt-6 min-w-0 rounded-xl border border-gray-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 sm:px-6">
+          <div className="min-w-0">
+            <h2 id="notif-history-title" className="text-sm font-semibold text-gray-800">Yuborilganlar tarixi</h2>
+            <p className="text-xs text-gray-400">Oxirgi {HISTORY_LIMIT} ta xabar, yangidan eskiga</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={refreshHistory} loading={historyRefreshing} disabled={history === null}>
+            {!historyRefreshing && <RefreshCw size={13} />} Yangilash
+          </Button>
+        </div>
+        {historyError ? (
+          <ErrorState message={historyError} onRetry={retryHistory} className="!py-10" />
+        ) : history === null ? (
+          <LoadingState className="!py-10" />
+        ) : history.length === 0 ? (
+          <EmptyState
+            icon={History}
+            title="Hali bildirishnoma yuborilmagan"
+            description="Yuborilgan xabarlar shu yerda ko'rinadi."
+            className="!py-10"
+          />
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {history.map((h) => (
+              <li key={h.id} className="flex gap-3 px-4 py-3 sm:px-6">
+                {h.image && (
+                  <img
+                    src={fileUrl(h.image)}
+                    alt=""
+                    loading="lazy"
+                    className="h-10 w-10 shrink-0 rounded-lg border border-gray-100 object-cover"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm font-medium text-gray-800">{h.title?.trim() || 'Sarlavhasiz'}</p>
+                  {h.body?.trim() && (
+                    <p className="mt-0.5 line-clamp-2 break-words text-xs text-gray-500">{h.body}</p>
+                  )}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    <span className="inline-flex min-w-0 items-center gap-1">
+                      <UsersIcon size={12} className="shrink-0 text-gray-400" />
+                      <span className="min-w-0 break-words">{historyTarget(h)}</span>
+                    </span>
+                    <span>{formatNumber(h.recipientCount)} ta odamga</span>
+                    <span className="text-gray-400">{formatDateTime(h.createdAt)}</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

@@ -40,6 +40,7 @@ export default function LoginPage() {
         email,
         phone: data.phone,
         role: data.role,
+        isDefault: data.isDefault === true,
       };
 
       login(data.token, user, rememberMe);
