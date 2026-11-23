@@ -81,6 +81,8 @@ export interface ApiCourse {
   onSale?: boolean;
   /** Kartada ko'rsatiladigan o'quvchilar soni (admin qo'lda belgilaydi). */
   students?: number;
+  /** Kirgan foydalanuvchi shu kursga yozilganmi (token bilan so'ralganda). */
+  isEnrolled?: boolean;
 }
 
 /** Admin panel boshqaradigan jonli kitob katalogi elementi (GET /api/v1/books). */
@@ -98,6 +100,8 @@ export interface ApiBook {
   reviewCount?: number;
   pageCount?: number;
   coverUrl?: string;
+  /** Kirgan foydalanuvchi shu kitobni sotib olganmi (token bilan so'ralganda). */
+  isPurchased?: boolean;
 }
 
 function unwrapList<T>(data: unknown): T[] {
@@ -111,21 +115,37 @@ function unwrapList<T>(data: unknown): T[] {
  * Saytda sotuvdagi kurslar ro'yxati (admin panel: «Sotuvga chiqarish»).
  * Xatoda bo'sh massiv — bo'lim ko'rsatilmaydi.
  */
-export async function fetchCourses(): Promise<ApiCourse[]> {
+export async function fetchCourses(authToken?: string | null): Promise<ApiCourse[]> {
   try {
-    const res = await client.get('/api/v1/courses');
+    const data = await getCatalog('/api/v1/courses', authToken);
     // `onSale` maydoni yo'q (eski backend) bo'lsa kurs sotuvda deb hisoblanadi.
-    return unwrapList<ApiCourse>(res.data).filter((course) => course.onSale !== false);
+    return unwrapList<ApiCourse>(data).filter((course) => course.onSale !== false);
   } catch {
     return [];
   }
 }
 
+/**
+ * Katalog so'rovi. `authToken` berilsa backend foydalanuvchiga tegishli belgilarni
+ * (`isEnrolled`, `isPurchased`) ham qaytaradi. Token eskirgan bo'lsa katalog
+ * baribir ko'rinishi uchun so'rov tokensiz takrorlanadi.
+ */
+async function getCatalog(path: string, authToken?: string | null): Promise<unknown> {
+  if (authToken) {
+    try {
+      const res = await client.get(path, { headers: { Authorization: `Bearer ${authToken}` } });
+      return res.data;
+    } catch {
+      // pastda tokensiz qayta urinamiz
+    }
+  }
+  return (await client.get(path)).data;
+}
+
 /** Jonli kitoblar ro'yxati; xatoda bo'sh massiv (bo'lim ko'rsatilmaydi). */
-export async function fetchBooks(): Promise<ApiBook[]> {
+export async function fetchBooks(authToken?: string | null): Promise<ApiBook[]> {
   try {
-    const res = await client.get('/api/v1/books');
-    return unwrapList<ApiBook>(res.data);
+    return unwrapList<ApiBook>(await getCatalog('/api/v1/books', authToken));
   } catch {
     return [];
   }

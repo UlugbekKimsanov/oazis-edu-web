@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Star } from 'lucide-react';
 import { Section } from '../ui/Section';
 import { Button } from '../ui/Button';
+import { PurchasedBadge } from '../ui/PurchasedBadge';
 import { fetchBooks, fileUrl, type ApiBook } from '../../lib/api';
 import { productKey, type PurchaseProduct } from '../../lib/auth';
 
@@ -28,7 +29,7 @@ function BookCard({
     : book.priceLabel ||
       (book.price ? `${book.price.toLocaleString('ru-RU')} so'm` : '');
   return (
-    <div className="flex h-full min-w-0 flex-col rounded-2xl border border-gray-100 bg-white p-3 shadow-sm transition-shadow hover:shadow-md sm:p-4">
+    <div className="flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md sm:p-4">
       {cover ? (
         <img
           src={cover}
@@ -66,7 +67,9 @@ function BookCard({
       <div className="mt-auto pt-3">
         <span className="text-sm font-bold text-gray-900 sm:text-base">{priceText}</span>
       </div>
-      {isPaid ? (
+      {isPaid && book.isPurchased ? (
+        <PurchasedBadge className="mt-3" />
+      ) : isPaid ? (
         // Pullik kitob — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
         <Button
           className="mt-3 w-full px-3 sm:px-6"
@@ -89,22 +92,28 @@ function BookCard({
  * API ishlamasa yoki ro'yxat bo'sh bo'lsa bo'lim ko'rsatilmaydi.
  */
 export function Books({
+  authToken,
   buyingKey,
   onBuy,
 }: {
+  /** Kirgan foydalanuvchi tokeni — sotib olingan kitoblarni belgilash uchun. */
+  authToken: string | null;
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
 }) {
   const [books, setBooks] = useState<ApiBook[]>([]);
+  const scrolledToHash = useRef(false);
 
   useEffect(() => {
     let active = true;
-    fetchBooks().then((list) => {
+    fetchBooks(authToken).then((list) => {
       if (!active) return;
       setBooks(list);
       // Mobil ilova #books anchor'iga yo'naltiradi; bo'lim kech render
-      // bo'lgani uchun hash mavjud bo'lsa yuklangach qayta scroll qilamiz.
-      if (list.length > 0 && window.location.hash === '#books') {
+      // bo'lgani uchun hash mavjud bo'lsa yuklangach qayta scroll qilamiz
+      // (faqat birinchi yuklanishda — kirish/chiqishdagi qayta so'rovda emas).
+      if (!scrolledToHash.current && list.length > 0 && window.location.hash === '#books') {
+        scrolledToHash.current = true;
         requestAnimationFrame(() => {
           document.getElementById('books')?.scrollIntoView({ behavior: 'smooth' });
         });
@@ -113,7 +122,7 @@ export function Books({
     return () => {
       active = false;
     };
-  }, []);
+  }, [authToken]);
 
   if (books.length === 0) return null;
 

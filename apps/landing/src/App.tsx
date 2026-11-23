@@ -138,7 +138,9 @@ function App() {
         <Hero
           hero={content.hero}
           stats={content.stats}
+          loggedIn={user !== null}
           onRequestInfo={() => setLeadModalOpen(true)}
+          onLogin={() => setAuthOpen(true)}
         />
         <Features title={content.featuresTitle} features={content.features} />
         <CourseInfo title={content.courseInfoTitle} items={content.courseInfo} />
@@ -147,11 +149,12 @@ function App() {
         <Courses
           title={content.coursesTitle}
           cardText={content.courseCard}
+          authToken={user?.token ?? null}
           buyingKey={buyingKey}
           onBuy={handleBuy}
         />
         <Bonuses title={content.bonusTitle} text={content.bonusText} books={content.bonusBooks} />
-        <Books buyingKey={buyingKey} onBuy={handleBuy} />
+        <Books authToken={user?.token ?? null} buyingKey={buyingKey} onBuy={handleBuy} />
         <SignupForm cta={content.cta} formCopy={content.leadForm} />
       </main>
       <Footer logo={content.navbar.logo} footer={content.footer} contacts={content.contacts} />

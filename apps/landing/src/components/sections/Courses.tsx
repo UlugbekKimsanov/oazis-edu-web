@@ -3,6 +3,7 @@ import { BookOpen, Clock, Users } from 'lucide-react';
 import type { LandingContent } from '../../data/landing';
 import { Section } from '../ui/Section';
 import { Button } from '../ui/Button';
+import { PurchasedBadge } from '../ui/PurchasedBadge';
 import { fetchCourses, fileUrl, type ApiCourse } from '../../lib/api';
 import { productKey, type PurchaseProduct } from '../../lib/auth';
 
@@ -24,7 +25,7 @@ function ApiCourseCard({
       (course.price ? `${course.price.toLocaleString('ru-RU')} so'm` : '')
     : 'Bepul';
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md">
       {cover ? (
         <img
           src={cover}
@@ -62,7 +63,9 @@ function ApiCourseCard({
       <div className="mt-auto pt-4">
         <span className="text-lg font-bold text-gray-900">{priceText}</span>
       </div>
-      {course.isPremium ? (
+      {course.isPremium && course.isEnrolled ? (
+        <PurchasedBadge className="mt-4" />
+      ) : course.isPremium ? (
         // Pullik kurs — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
         <Button
           className="mt-4 w-full"
@@ -87,11 +90,14 @@ function ApiCourseCard({
 export function Courses({
   title,
   cardText,
+  authToken,
   buyingKey,
   onBuy,
 }: {
   title: string;
   cardText: LandingContent['courseCard'];
+  /** Kirgan foydalanuvchi tokeni — sotib olingan kurslarni belgilash uchun. */
+  authToken: string | null;
   /** Hozir checkout tokeni so'ralayotgan mahsulot kaliti (`course:5`). */
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
@@ -100,13 +106,14 @@ export function Courses({
   const [courses, setCourses] = useState<ApiCourse[] | null>(null);
   useEffect(() => {
     let active = true;
-    fetchCourses().then((list) => {
+    // Kirish/chiqishda qayta so'raladi: "Sotib olingan" belgisi foydalanuvchiga bog'liq.
+    fetchCourses(authToken).then((list) => {
       if (active) setCourses(list);
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [authToken]);
 
   return (
     <Section id="courses" title={title} className="bg-white">

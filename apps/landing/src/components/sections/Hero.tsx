@@ -5,11 +5,16 @@ import { Button } from '../ui/Button';
 export function Hero({
   hero,
   stats,
+  loggedIn,
   onRequestInfo,
+  onLogin,
 }: {
   hero: LandingContent['hero'];
   stats: Stat[];
+  loggedIn: boolean;
   onRequestInfo: () => void;
+  /** "Kirish" tugmasi — kirish/ro'yxatdan o'tish oynasini ochadi. */
+  onLogin: () => void;
 }) {
   return (
     <section
@@ -24,14 +29,18 @@ export function Hero({
           <p className="mx-auto mt-6 max-w-2xl text-base text-white/85 sm:text-lg">
             {hero.subtitle}
           </p>
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button type="button" variant="white" onClick={onRequestInfo}>
-              {hero.primaryBtn}
-            </Button>
-            <a href="#royxatdan-otish">
-              <Button variant="outlineWhite">{hero.secondaryBtn}</Button>
-            </a>
-          </div>
+          {/* Kirgan foydalanuvchiga "Ma'lumot olish" va "Kirish" kerak emas —
+              u allaqachon hisobida, shuning uchun tugmalar ko'rsatilmaydi. */}
+          {!loggedIn && (
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Button type="button" variant="white" onClick={onRequestInfo}>
+                {hero.primaryBtn}
+              </Button>
+              <Button type="button" variant="outlineWhite" onClick={onLogin}>
+                {hero.secondaryBtn}
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="mx-auto mt-14 grid max-w-3xl grid-cols-3 gap-4 sm:gap-8">
