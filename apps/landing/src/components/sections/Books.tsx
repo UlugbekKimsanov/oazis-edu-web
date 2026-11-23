@@ -40,30 +40,27 @@ function BookCard({
     title: book.title,
     print: book.category === 'print',
   };
-  // Sotib olingan kitobda ham butun karta bosiladi — "ilovada o'qing" / "yetkazib beriladi" oynasi.
+  // Butun karta bosiladi: pullik → xarid oynasi, sotib olingan yoki bepul →
+  // "kitob mobil ilovada" oynasi.
   const owned = isPaid && Boolean(book.isPurchased);
   const buy = () => {
     if (!buying) onBuy(product);
   };
-  const activate = canBuy ? buy : () => onOwned(product);
+  const activate = canBuy ? buy : owned ? () => onOwned(product) : () => onFree(product);
   return (
     <div
-      {...(canBuy || owned
-        ? {
-            role: 'button',
-            tabIndex: 0,
-            onClick: activate,
-            onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
-              if (event.target !== event.currentTarget) return;
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                activate();
-              }
-            },
-            'aria-label': `${book.title} — ${canBuy ? 'Xarid qilish' : 'Sotib olingan'}`,
-          }
-        : {})}
-      className={`oz-card flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy || owned ? 'cursor-pointer' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={activate}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          activate();
+        }
+      }}
+      aria-label={`${book.title} — ${canBuy ? 'Xarid qilish' : owned ? 'Sotib olingan' : 'Bepul olish'}`}
+      className="oz-card flex h-full min-w-0 cursor-pointer flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none"
     >
       {/* Kurs kartasi bilan bir xil uslub: tepada rasm bloki, toifa, nom, meta, narx, tugma.
           Kitob muqovasi tik (3:4) bo'lgani uchun blok ichida to'liq, kesilmasdan ko'rsatiladi. */}
@@ -124,7 +121,14 @@ function BookCard({
           </Button>
         ) : (
           // Bepul kitob — ilovadagi kutubxonada o'qiladi: ilovani yuklashga yo'naltiruvchi oyna.
-          <Button className="w-full" onClick={() => onFree(product)}>
+          <Button
+            className="w-full"
+            onClick={(event) => {
+              // Karta ham bosiladigan — oyna ikki marta ochilmasligi uchun.
+              event.stopPropagation();
+              onFree(product);
+            }}
+          >
             Bepul olish
           </Button>
         )}

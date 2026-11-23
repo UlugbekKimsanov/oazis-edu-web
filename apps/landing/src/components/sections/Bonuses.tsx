@@ -15,9 +15,11 @@ export interface GiftBookItem {
 }
 
 /**
- * Bonuslar — admin panelda kurslarga biriktirilgan HAQIQIY sovg'a kitoblar
- * (namunaviy ro'yxat emas). Hech qaysi sotuvdagi kursga sovg'a biriktirilmagan
- * bo'lsa bo'lim ko'rsatilmaydi.
+ * Bonuslar — admin panelda kurslarga biriktirilgan HAQIQIY sovg'a kitoblar.
+ * Yozuv tepada markazda, kartalar esa soniga qarab markazda tekis joylashadi —
+ * 1 ta sovg'ada ham, 5 tada ham ko'rinish buzilmaydi. Har bir sovg'a alohida
+ * karta: rasm, nom, turi va qaysi kurs bilan berilishi bitta chegara ichida.
+ * Sovg'a bo'lmasa bo'lim ko'rsatilmaydi.
  */
 export function Bonuses({
   title,
@@ -32,52 +34,50 @@ export function Bonuses({
 
   return (
     <Section title={title} className="bg-primary-light">
-      {/* Kitob(lar) va yozuv — bitta karta ichida. */}
-      <div className="oz-card mx-auto max-w-4xl rounded-3xl border-2 border-gray-100 bg-white p-6 shadow-sm sm:p-8">
-        <div className="flex flex-col items-center gap-6 md:flex-row md:gap-10">
-          <div className="flex flex-wrap justify-center gap-4">
-            {gifts.map((g) => {
-              const cover = fileUrl(g.cover);
-              return (
-                <div key={g.bookId} className="w-36 min-w-0 sm:w-40">
-                  <div className="oz-card-media relative overflow-hidden rounded-xl">
-                    {cover ? (
-                      <img
-                        src={cover}
-                        alt={g.title}
-                        loading="lazy"
-                        decoding="async"
-                        className="aspect-[3/4] w-full rounded-xl bg-primary-light object-cover"
-                      />
-                    ) : (
-                      <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-dark text-white">
-                        <BookOpen className="h-8 w-8" />
-                      </div>
-                    )}
-                    <span className="gift-gold absolute right-2 top-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold">
-                      <Gift className="h-3.5 w-3.5" /> Sovg'a
-                    </span>
-                  </div>
-                  <p
-                    className="mt-2 line-clamp-2 text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]"
-                    title={g.title}
-                  >
-                    {g.title}
-                  </p>
-                  <p className="mt-0.5 text-xs font-medium text-primary">
-                    {g.category === 'print' ? 'Bosma kitob' : 'Elektron kitob'}
-                  </p>
-                  <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">
-                    {g.courses.map((c) => `«${c}»`).join(', ')} kursi bilan
-                  </p>
+      <p className="mx-auto max-w-2xl text-center text-xl font-bold leading-snug text-gray-900 sm:text-2xl">
+        {text}
+      </p>
+      <div className="mt-10 flex flex-wrap justify-center gap-4 sm:gap-5">
+          {gifts.map((g) => {
+            const cover = fileUrl(g.cover);
+            return (
+              <div
+                key={g.bookId}
+                className="oz-card flex w-40 min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm sm:w-44"
+              >
+                <div className="oz-card-media relative overflow-hidden rounded-xl">
+                  {cover ? (
+                    <img
+                      src={cover}
+                      alt={g.title}
+                      loading="lazy"
+                      decoding="async"
+                      className="aspect-[3/4] w-full rounded-xl bg-primary-light object-cover"
+                    />
+                  ) : (
+                    <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-dark text-white">
+                      <BookOpen className="h-8 w-8" />
+                    </div>
+                  )}
+                  <span className="gift-gold absolute right-2 top-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold">
+                    <Gift className="h-3.5 w-3.5" /> Sovg'a
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-          <h3 className="text-center text-xl font-bold leading-snug text-gray-900 sm:text-2xl md:flex-1 md:text-left md:text-3xl">
-            {text}
-          </h3>
-        </div>
+                <p
+                  className="mt-2 line-clamp-2 text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]"
+                  title={g.title}
+                >
+                  {g.title}
+                </p>
+                <p className="mt-0.5 text-xs font-medium text-primary">
+                  {g.category === 'print' ? 'Bosma kitob' : 'Elektron kitob'}
+                </p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">
+                  {g.courses.map((c) => `«${c}»`).join(', ')} kursi bilan
+                </p>
+              </div>
+            );
+          })}
       </div>
     </Section>
   );

@@ -37,7 +37,7 @@ function ApiCourseCard({
   const buy = () => {
     if (!buying) onBuy(product);
   };
-  const activate = canBuy ? buy : () => onOwned(product);
+  const activate = canBuy ? buy : owned ? () => onOwned(product) : () => onFree(product);
   const onCardKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
@@ -48,16 +48,12 @@ function ApiCourseCard({
 
   return (
     <div
-      {...(canBuy || owned
-        ? {
-            role: 'button',
-            tabIndex: 0,
-            onClick: activate,
-            onKeyDown: onCardKey,
-            'aria-label': `${course.name} — ${canBuy ? text.buyLabel : 'Sotib olingan'}`,
-          }
-        : {})}
-      className={`oz-card flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy || owned ? 'cursor-pointer' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={activate}
+      onKeyDown={onCardKey}
+      aria-label={`${course.name} — ${canBuy ? text.buyLabel : owned ? 'Sotib olingan' : 'Bepul boshlash'}`}
+      className="oz-card flex h-full cursor-pointer flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none"
     >
       <div className="oz-card-media relative mb-4 overflow-hidden rounded-xl">
         {cover ? (
@@ -125,7 +121,11 @@ function ApiCourseCard({
         // Bepul kurs — darslar ilovada o'tiladi: ilovani yuklashga yo'naltiruvchi oyna ochiladi.
         <Button
           className="mt-4 w-full"
-          onClick={() => onFree({ type: 'course', id: course.id, title: course.name })}
+          onClick={(event) => {
+            // Karta ham bosiladigan — oyna ikki marta ochilmasligi uchun.
+            event.stopPropagation();
+            onFree(product);
+          }}
         >
           Bepul boshlash
         </Button>
