@@ -64,12 +64,6 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(null), 7000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-
   const closeCheckout = useCallback(() => setCheckoutToken(null), []);
 
   /** Kirgan foydalanuvchi uchun checkout tokenini olib, to'lov oynasini ochadi. */
@@ -86,7 +80,9 @@ function App() {
         setPendingProduct(product);
         setAuthOpen(true);
       } else {
-        setNotice(apiErrorMessage(error, "Xaridni boshlab bo'lmadi. Qayta urinib ko'ring."));
+        setNotice(
+          `«${product.title}»: ${apiErrorMessage(error, "xaridni boshlab bo'lmadi. Qayta urinib ko'ring.")}`,
+        );
       }
     } finally {
       setBuyingKey(null);
@@ -181,18 +177,31 @@ function App() {
         <CheckoutOverlay token={checkoutToken} onClose={closeCheckout} />
       )}
       {notice && (
+        // Xarid davom etmagan sababi ko'zga tashlanishi shart (masalan, kurs allaqachon
+        // olingan) — shuning uchun burchakdagi toast emas, markazdagi oyna.
         <div
-          role="alert"
-          className="fixed inset-x-4 bottom-4 z-[120] mx-auto flex max-w-md items-start gap-3 rounded-2xl bg-gray-900 px-4 py-3 text-sm text-white shadow-2xl"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-gray-950/60 p-4 backdrop-blur-sm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="purchase-notice-title"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setNotice(null);
+          }}
         >
-          <span className="flex-1 leading-6">{notice}</span>
-          <button
-            type="button"
-            className="shrink-0 font-semibold text-white/70 hover:text-white"
-            onClick={() => setNotice(null)}
-          >
-            Yopish
-          </button>
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl sm:p-8">
+            <h2 id="purchase-notice-title" className="text-xl font-bold text-gray-900">
+              Xarid davom etmadi
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-gray-600">{notice}</p>
+            <button
+              type="button"
+              autoFocus
+              className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+              onClick={() => setNotice(null)}
+            >
+              Tushunarli
+            </button>
+          </div>
         </div>
       )}
     </div>
