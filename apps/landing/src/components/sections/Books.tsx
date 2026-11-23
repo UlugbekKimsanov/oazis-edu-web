@@ -33,14 +33,14 @@ function BookCard({
     : book.priceLabel ||
       (book.price ? `${book.price.toLocaleString('ru-RU')} so'm` : '');
   return (
-    <div className="flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md sm:p-4">
+    <div className="flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md">
       {cover ? (
         <img
           src={cover}
           alt={book.title}
           loading="lazy"
           decoding="async"
-          className="mb-3 aspect-[3/4] w-full rounded-xl object-cover"
+          className="mb-2.5 aspect-[3/4] w-full rounded-xl bg-primary-light object-cover"
         />
       ) : (
         <div className="mb-3 flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-br from-primary to-primary-dark p-3 text-center text-white">
@@ -48,35 +48,36 @@ function BookCard({
           <BookOpen className="h-6 w-6" />
         </div>
       )}
-      <span className="mb-2 inline-block w-fit rounded-full bg-primary-light px-3 py-1 text-xs font-semibold text-primary">
-        {categoryLabel(book.category)}
-      </span>
-      {/* Sarlavha doim 2 qator joy egallaydi (uzun/bo'shliqsiz nomlar kartadan chiqib
-          ketmasligi va kartalar bir tekis turishi uchun); to'liq nom title'da. */}
+      {/* Ixcham karta: toifa va reyting bitta qatorda, bo'sh qatorlar zaxiralanmaydi. */}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="truncate rounded-full bg-primary-light px-2.5 py-0.5 text-xs font-semibold text-primary">
+          {categoryLabel(book.category)}
+        </span>
+        {Boolean(book.rating) && (
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-gray-500">
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            {(book.rating as number).toFixed(1)}
+          </span>
+        )}
+      </div>
+      {/* Uzun/bo'shliqsiz nomlar kartadan chiqib ketmasligi uchun 2 qatorda kesiladi;
+          to'liq nom title'da. */}
       <h3
-        className="line-clamp-2 min-h-[2.75em] text-sm font-bold leading-snug text-gray-900 [overflow-wrap:anywhere]"
+        className="line-clamp-2 text-sm font-bold leading-snug text-gray-900 [overflow-wrap:anywhere]"
         title={book.title}
       >
         {book.title}
       </h3>
-      <p className="mt-1 min-h-4 truncate text-xs text-gray-500">{book.author || ''}</p>
-      <div className="mt-2 flex min-h-4 items-center gap-1 text-xs text-gray-500">
-        {Boolean(book.rating) && (
-          <>
-            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-            {(book.rating as number).toFixed(1)}
-          </>
-        )}
-      </div>
-      <div className="mt-auto pt-3">
+      {book.author && <p className="mt-0.5 truncate text-xs text-gray-500">{book.author}</p>}
+      <div className="mt-auto pt-2">
         <span className="text-sm font-bold text-gray-900 sm:text-base">{priceText}</span>
       </div>
       {isPaid && book.isPurchased ? (
-        <PurchasedBadge className="mt-3" />
+        <PurchasedBadge className="mt-2 py-2!" />
       ) : isPaid ? (
         // Pullik kitob — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
         <Button
-          className="mt-3 w-full px-3 sm:px-6"
+          className="mt-2 w-full px-3 py-2.5!"
           disabled={buying}
           onClick={() => onBuy({ type: 'book', id: book.id, title: book.title })}
         >
@@ -84,12 +85,12 @@ function BookCard({
         </Button>
       ) : loggedIn ? (
         // Kirgan foydalanuvchiga ariza formasi ko'rsatilmaydi — ilovada ochilishini aytamiz.
-        <Button className="mt-3 w-full px-3 sm:px-6" onClick={() => onFreeInfo(book.title)}>
+        <Button className="mt-2 w-full px-3 py-2.5!" onClick={() => onFreeInfo(book.title)}>
           Bepul olish
         </Button>
       ) : (
-        <a href="#royxatdan-otish" className="mt-3">
-          <Button className="w-full px-3 sm:px-6">Bepul olish</Button>
+        <a href="#royxatdan-otish" className="mt-2">
+          <Button className="w-full px-3 py-2.5!">Bepul olish</Button>
         </a>
       )}
     </div>
@@ -140,7 +141,7 @@ export function Books({
 
   return (
     <Section id="books" title="Kitoblar" className="bg-white">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(165px,190px))] sm:justify-center sm:gap-4">
         {books.map((b) => (
           <BookCard
             key={b.id}
