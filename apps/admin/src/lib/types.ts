@@ -160,6 +160,8 @@ export interface Book {
 }
 
 export interface StudentProgress {
+  /** Qator identifikatori (kursga yozilish yozuvi) — bir o'quvchi bir necha kursda bo'lishi mumkin */
+  id: number;
   userId: number;
   firstName: string;
   lastName: string;
@@ -168,6 +170,31 @@ export interface StudentProgress {
   progress: number;
   lessonsCompleted: number;
   totalLessons: number;
+  enrolledAt?: string | null;
+  lastActiveAt?: string | null;
+}
+
+/** Ustoz ↔ o'quvchi shaxsiy chat xonasi (GET /teacher/chat/rooms) */
+export interface ChatRoom {
+  courseId: number;
+  studentId: number;
+  studentName: string;
+  courseName: string;
+  /** Kursga yozilganmi (yozilmagan o'quvchi ham xabar yozgan bo'lishi mumkin) */
+  enrolled?: boolean;
+  lastMessage?: string | null;
+  lastTime?: string | null;
+  lastSenderRole?: string | null;
+  /** Oxirgi xabar o'quvchidan — ustoz javobi kutilmoqda */
+  awaitingReply?: boolean;
+}
+
+export interface TeacherDashboardStats {
+  myCourses: number;
+  myStudents: number;
+  awaitingChats: number;
+  activeChats: number;
+  recentAwaiting: ChatRoom[];
 }
 
 export interface ChatMessage {
@@ -178,6 +205,9 @@ export interface ChatMessage {
   senderRole: string;
   text: string;
   createdAt: string;
+  /** Yuklangan media (/files/...) va turi: "image" yoki "file" */
+  mediaUrl?: string | null;
+  mediaType?: string | null;
   messageType?: string;
   pinned?: boolean;
   conferenceUrl?: string;

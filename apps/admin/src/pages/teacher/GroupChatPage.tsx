@@ -1,401 +1,423 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Video, Users, ExternalLink } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { ArrowLeft, ExternalLink, GraduationCap, Search, Users, Video } from 'lucide-react';
+import { Composer, ConnectionBanner, MessageList } from '../../components/chat/ChatParts';
+import Button from '../../components/ui/Button';
+import Flag from '../../components/ui/Flag';
+import PageHeader from '../../components/ui/PageHeader';
+import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
 import api, { WS_ORIGIN } from '../../lib/api';
+import { apiErrorMessage } from '../../lib/errors';
+import { useChatSocket } from '../../lib/useChatSocket';
 import { useAuthStore } from '../../stores/auth-store';
+import { confirmDialog, toast } from '../../stores/ui-store';
 import type { ChatMessage, Course } from '../../lib/types';
 
-export default function GroupChatPage() {
-  const { user, token } = useAuthStore();
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
-  const wsRef = useRef<WebSocket | null>(null);
-  const [search, setSearch] = useState('');
-  const [showAnnounce, setShowAnnounce] = useState(false);
-  const [note0, setNote0] = useState('');
-  const [mode, setMode] = useState<'now' | 'scheduled'>('now');
-  const [dateStr, setDateStr] = useState('');
-  const [hour, setHour] = useState('09');
-  const [minute, setMinute] = useState('00');
-  const [now, setNow] = useState<number>(() => Date.now());
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+/** Backend: GroupChatWebSocketHandler izohni 300 belgigacha qisqartiradi (sarlavha matni bilan birga). */
+const NOTE_MAX = 200;
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Konferensiya boshlanish vaqti — o'quvchi ilovasi bilan kelishilgan format:
+ * zonasiz "devordagi soat" (YYYY-MM-DDTHH:mm), har ikki tomonda MAHALLIY vaqt deb o'qiladi.
+ * (Xabar yuborilgan vaqt — createdAt — esa UTC; uni parseServerDate o'qiydi.)
+ */
+function conferenceStart(m: ChatMessage): Date | null {
+  if (!m.conferenceStartAt) return null;
+  const d = new Date(m.conferenceStartAt);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function startLabel(d: Date): string {
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** datetime-local uchun joriy mahalliy vaqt: "2026-11-23T14:05" */
+function localNowInput(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+interface RoomProps {
+  course: Course;
+  token: string;
+  myId?: number;
+  onBack: () => void;
+}
+
+/** Bitta kursning guruh chati. Kurs almashganda `key` orqali qayta yaratiladi. */
+function GroupRoom({ course, token, myId, onBack }: RoomProps) {
+  const url = `${WS_ORIGIN}/ws/course-chat?token=${encodeURIComponent(token)}&courseId=${course.id}`;
+  const { messages, status, historyLoaded, send, reconnect } = useChatSocket(url);
+  const [showAnnounce, setShowAnnounce] = useState(false);
+  const [note, setNote] = useState('');
+  const [mode, setMode] = useState<'now' | 'scheduled'>('now');
+  const [when, setWhen] = useState('');
+  const [whenError, setWhenError] = useState<string | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  // "Boshlanadi" -> "Qo'shilish" o'tishi uchun soat
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    api.get('/teacher/courses').then((r) => setCourses(r.data.data ?? r.data ?? [])).catch(() => setCourses([]));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCourse || !token) return;
-    let active = true;
-
-    const wsUrl = `${WS_ORIGIN}/ws/course-chat?token=${token}&courseId=${selectedCourse.id}`;
-    const socket = new WebSocket(wsUrl);
-
-    socket.onmessage = (event) => {
-      if (!active) return;
-      try {
-        const parsed = JSON.parse(event.data);
-        if (parsed.type === 'history') {
-          const history: ChatMessage[] = typeof parsed.text === 'string' ? JSON.parse(parsed.text) : parsed.text;
-          setMessages(history);
-        } else {
-          const msg = parsed as ChatMessage;
-          setMessages((prev) => {
-            // Bir xil id kelsa (masalan konferensiya tugatilganda) — qo'shmasdan yangilaymiz
-            const idx = msg.id != null ? prev.findIndex((m) => m.id === msg.id) : -1;
-            if (idx >= 0) {
-              const next = [...prev];
-              next[idx] = msg;
-              return next;
-            }
-            return [...prev, msg];
-          });
-        }
-      } catch { /* malformed message */ }
-    };
-
-    wsRef.current = socket;
-    return () => {
-      active = false;
-      socket.onmessage = null;
-      socket.close();
-      if (wsRef.current === socket) wsRef.current = null;
-    };
-  }, [selectedCourse, token]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Aktiv konferensiyani aniqlash (eng oxirgi conference xabari bo'yicha)
+  // Faol konferensiya — eng oxirgi konferensiya xabari bo'yicha
   const activeConference = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.messageType === 'conference') {
-        return m.conferenceActive ? m : null;
-      }
+      if (m.messageType === 'conference') return m.conferenceActive ? m : null;
     }
     return null;
   }, [messages]);
 
-  const sendMessage = () => {
-    const socket = wsRef.current;
-    if (!input.trim() || !socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ text: input.trim() }));
-    setInput('');
+  const ready = status === 'open';
+  const isStarted = (m: ChatMessage) => {
+    const start = conferenceStart(m);
+    // `now` 30 soniyada bir yangilanadi va server soati biroz oldinda bo'lishi mumkin —
+    // "Hozir" e'lon qilingan konferensiya "boshlanadi" bo'lib ko'rinmasligi uchun 1 daqiqa zaxira
+    return !start || start.getTime() <= now + 60000;
   };
 
-  const announceConference = () => {
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-
-    let scheduledAt: string | undefined;
-    let whenLabel: string;
-    if (mode === 'now') {
-      whenLabel = 'hozir';
-    } else {
-      if (!dateStr) return;
-      // Backend LocalDateTime formati: YYYY-MM-DDTHH:mm
-      scheduledAt = `${dateStr}T${hour}:${minute}`;
-      whenLabel = new Date(scheduledAt).toLocaleString('uz', {
-        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-      });
-    }
-
-    const base = mode === 'now'
-      ? '📹 Video konferensiya hozir boshlandi'
-      : `📹 Video konferensiya ${whenLabel} da boshlanadi`;
-    const note = note0.trim() ? `${base} — ${note0.trim()}` : base;
-
-    socket.send(JSON.stringify({ action: 'conference_start', note, scheduledAt }));
+  const closeAnnounce = () => {
     setShowAnnounce(false);
-    setNote0('');
+    setNote('');
     setMode('now');
-    setDateStr('');
-    setHour('09');
-    setMinute('00');
+    setWhen('');
+    setWhenError(null);
   };
 
-  const endConference = () => {
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ action: 'conference_end' }));
+  const announce = () => {
+    let scheduledAt: string | undefined;
+    let base = '📹 Video konferensiya hozir boshlandi';
+    if (mode === 'scheduled') {
+      const start = when ? new Date(when) : null;
+      if (!start || isNaN(start.getTime())) {
+        setWhenError('Sana va vaqtni tanlang.');
+        return;
+      }
+      if (start.getTime() <= Date.now()) {
+        setWhenError("Vaqt o'tib ketgan. Kelajakdagi vaqtni tanlang yoki «Hozir»ni belgilang.");
+        return;
+      }
+      scheduledAt = when;
+      base = `📹 Video konferensiya ${startLabel(start)} da boshlanadi`;
+    }
+    const topic = note.trim();
+    if (!send({ action: 'conference_start', note: topic ? `${base} — ${topic}` : base, scheduledAt })) {
+      toast.error("Ulanish yo'q. Konferensiya e'lon qilinmadi — qayta urinib ko'ring.");
+      return;
+    }
+    toast.success(mode === 'now' ? 'Konferensiya boshlandi' : "Konferensiya e'lon qilindi");
+    closeAnnounce();
   };
 
-  const joinConference = (url?: string) => {
-    if (url) window.open(url, '_blank');
+  const endConference = async () => {
+    const ok = await confirmDialog({
+      title: 'Konferensiya tugatilsinmi?',
+      message: "O'quvchilar uchun «Qo'shilish» tugmasi yo'qoladi. Qayta ochish uchun yangi konferensiya e'lon qilinadi.",
+      confirmText: 'Tugatish',
+      danger: true,
+    });
+    if (!ok) return;
+    if (!send({ action: 'conference_end' })) {
+      toast.error("Ulanish yo'q. Konferensiya tugatilmadi — qayta urinib ko'ring.");
+    }
   };
 
-  const isStarted = (m: ChatMessage) =>
-    !m.conferenceStartAt || new Date(m.conferenceStartAt).getTime() <= now;
-  const startLabel = (m: ChatMessage) =>
-    m.conferenceStartAt
-      ? new Date(m.conferenceStartAt).toLocaleString('uz', {
-          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-        })
-      : '';
+  const join = (url?: string) => {
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const renderConference = (msg: ChatMessage) => {
+    if (msg.messageType !== 'conference') return null;
+    const start = conferenceStart(msg);
+    return (
+      <div className="flex justify-center">
+        <div className="w-full max-w-[80%] rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-center">
+          <div className="flex items-center justify-center gap-2 text-sm font-medium text-green-800">
+            <Video size={16} className="shrink-0" />
+            <span className="break-words">
+              {/* Matn boshidagi emoji o'rniga yonidagi ikonka ko'rsatiladi */}
+              {msg.text?.replace(/^\u{1F4F9}\s*/u, '') || (msg.conferenceActive ? 'Video konferensiya boshlandi' : 'Video konferensiya tugadi')}
+            </span>
+          </div>
+          {msg.conferenceActive && (
+            isStarted(msg) ? (
+              <button
+                type="button"
+                onClick={() => join(msg.conferenceUrl)}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-700"
+              >
+                <ExternalLink size={14} /> Qo'shilish
+              </button>
+            ) : (
+              start && <div className="mt-2 text-xs text-green-700">{startLabel(start)} da boshlanadi</div>
+            )
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const activeStart = activeConference ? conferenceStart(activeConference) : null;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 p-3 sm:p-4">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Kurslar ro'yxatiga qaytish"
+          className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden"
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <Flag emoji={course.flagEmoji} height={22} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-gray-900">{course.name}</p>
+          <p className="text-xs text-gray-500">{course.studentCount ?? 0} o'quvchi</p>
+        </div>
+        {!activeConference && !showAnnounce && (
+          <Button size="sm" onClick={() => setShowAnnounce(true)} disabled={!ready}>
+            <Video size={14} /> Konferensiya e'lon qilish
+          </Button>
+        )}
+      </div>
+
+      <ConnectionBanner status={status} onRetry={reconnect} />
+
+      {/* E'lon qilish formasi */}
+      {!activeConference && showAnnounce && (
+        <div className="shrink-0 space-y-3 border-b border-gray-100 bg-gray-50 px-4 py-4">
+          <div>
+            <label htmlFor="conf-note" className="mb-1 block text-xs font-medium text-gray-600">
+              Mavzu yoki izoh (ixtiyoriy)
+            </label>
+            <input
+              id="conf-note"
+              type="text"
+              value={note}
+              maxLength={NOTE_MAX}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Masalan: Grammatika bo'yicha jonli dars"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+            />
+          </div>
+          <fieldset>
+            <legend className="mb-1 block text-xs font-medium text-gray-600">Boshlanish vaqti</legend>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-700">
+                <input type="radio" name="conf-mode" checked={mode === 'now'} onChange={() => { setMode('now'); setWhenError(null); }} />
+                Hozir
+              </label>
+              <label className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-700">
+                <input type="radio" name="conf-mode" checked={mode === 'scheduled'} onChange={() => setMode('scheduled')} />
+                Vaqtni belgilash
+              </label>
+              {mode === 'scheduled' && (
+                <input
+                  type="datetime-local"
+                  value={when}
+                  min={localNowInput()}
+                  onChange={(e) => { setWhen(e.target.value); setWhenError(null); }}
+                  aria-label="Boshlanish sanasi va vaqti"
+                  aria-invalid={!!whenError}
+                  className={`rounded-lg border px-3 py-1.5 text-sm focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 ${
+                    whenError ? 'border-red-300' : 'border-gray-200'
+                  }`}
+                />
+              )}
+            </div>
+            {whenError && <p role="alert" className="mt-1 text-xs text-red-600">{whenError}</p>}
+          </fieldset>
+          <p className="text-xs text-gray-500">
+            Havola (Jitsi Meet) avtomatik yaratiladi va guruhdagi barcha o'quvchilarga ko'rinadi.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={announce} disabled={!ready}>
+              <Video size={14} /> E'lon qilish
+            </Button>
+            <Button size="sm" variant="secondary" onClick={closeAnnounce}>Bekor qilish</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Faol konferensiya */}
+      {activeConference && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-green-100 bg-green-50 px-4 py-3">
+          <p className="min-w-0 flex-1 break-words text-sm font-medium text-green-800">
+            {activeConference.text || '📹 Video konferensiya davom etmoqda'}
+          </p>
+          {isStarted(activeConference) ? (
+            <button
+              type="button"
+              onClick={() => join(activeConference.conferenceUrl)}
+              className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-700"
+            >
+              <ExternalLink size={14} /> Qo'shilish
+            </button>
+          ) : (
+            activeStart && (
+              <span className="rounded-lg bg-green-100 px-3 py-1.5 text-sm font-medium text-green-700">
+                {startLabel(activeStart)} da boshlanadi
+              </span>
+            )
+          )}
+          <button
+            type="button"
+            onClick={() => void endConference()}
+            disabled={!ready}
+            className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isStarted(activeConference) ? 'Tugatish' : 'Bekor qilish'}
+          </button>
+        </div>
+      )}
+
+      <MessageList
+        messages={messages}
+        myId={myId}
+        status={status}
+        historyLoaded={historyLoaded}
+        showSenderName
+        emptyTitle="Guruhda hali xabar yo'q"
+        emptyDescription="Birinchi xabarni yozing yoki konferensiya e'lon qiling."
+        renderSpecial={renderConference}
+      />
+
+      <Composer status={status} onSend={(text) => send({ text })} />
+    </>
+  );
+}
+
+export default function GroupChatPage() {
+  const { user, token } = useAuthStore();
+  const [params, setParams] = useSearchParams();
+  const [courses, setCourses] = useState<Course[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const requestId = useRef(0);
+
+  const load = useCallback(async () => {
+    const id = ++requestId.current;
+    try {
+      const r = await api.get('/teacher/courses');
+      if (id !== requestId.current) return;
+      const data = r.data?.data ?? r.data;
+      if (!Array.isArray(data)) throw new Error('unexpected payload');
+      setCourses(data as Course[]);
+      setLoadError(null);
+    } catch (err) {
+      if (id !== requestId.current) return;
+      setLoadError(apiErrorMessage(err, "Kurslar ro'yxatini yuklab bo'lmadi."));
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- birinchi yuklash; setState faqat javob kelgach chaqiriladi
+    void load();
+  }, [load]);
+
+  const courseParam = Number(params.get('courseId')) || null;
+  const selected = useMemo(
+    () => (courses && courseParam ? courses.find((c) => c.id === courseParam) ?? null : null),
+    [courses, courseParam],
+  );
+  const select = (course: Course | null) => {
+    setParams(course ? { courseId: String(course.id) } : {}, { replace: true });
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase('uz');
+    if (!q) return courses ?? [];
+    return (courses ?? []).filter((c) => c.name.toLocaleLowerCase('uz').includes(q));
+  }, [courses, search]);
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Guruh chat</h1>
-        <p className="text-sm text-gray-500 mt-1">Kurs guruhi bilan muloqot va video konferensiya</p>
-      </div>
+      <PageHeader title="Guruh chat" description="Kurs guruhi bilan yozishma va video konferensiya" />
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex h-[calc(100vh-200px)]">
-        {/* Sidebar - courses */}
-        <div className="w-72 border-r border-gray-200 flex flex-col">
-          <div className="p-3 border-b border-gray-100">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Kurs qidirish..."
-              className="w-full px-3 py-2 text-sm bg-gray-50 border-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-            />
+      <div className="flex h-[calc(100dvh-190px)] min-h-[420px] overflow-hidden rounded-xl border border-gray-200 bg-white">
+        {/* Kurslar ro'yxati — tor ekranda chat ochilganda yashiriladi */}
+        <div className={`${selected ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-gray-200 md:w-80`}>
+          <div className="border-b border-gray-100 p-3">
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Kurs qidirish..."
+                aria-label="Kurslarni qidirish"
+                className="w-full rounded-lg border-0 bg-gray-50 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+              />
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {courses.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center mt-8">Kurslar yo'q</p>
-            ) : (
-              courses.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase())).map((course) => (
-                <button
-                  key={course.id}
-                  onClick={() => {
-                    if (selectedCourse?.id !== course.id) setMessages([]);
-                    setSelectedCourse(course);
-                  }}
-                  className={`w-full text-left p-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
-                    selectedCourse?.id === course.id ? 'bg-[var(--primary-light)]' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl flex-shrink-0">{course.flagEmoji || '📚'}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{course.name}</p>
-                      <p className="text-xs text-gray-500 truncate flex items-center gap-1">
-                        <Users size={12} /> {course.studentCount ?? 0} o'quvchi
-                      </p>
+            {courses === null && !loadError ? (
+              <div className="space-y-3 p-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="h-6 w-9" />
+                    <div className="flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-36" />
+                      <Skeleton className="h-3 w-20" />
                     </div>
                   </div>
-                </button>
-              ))
+                ))}
+              </div>
+            ) : courses === null ? (
+              <ErrorState message={loadError ?? undefined} onRetry={() => void load()} />
+            ) : courses.length === 0 ? (
+              <EmptyState
+                icon={GraduationCap}
+                title="Kurslar yo'q"
+                description="Sizga hali kurs biriktirilmagan. Administratorga murojaat qiling."
+              />
+            ) : filtered.length === 0 ? (
+              <EmptyState icon={Search} title="Hech narsa topilmadi" description={`"${search}" bo'yicha kurs yo'q.`} />
+            ) : (
+              filtered.map((course) => {
+                const active = selected?.id === course.id;
+                return (
+                  <button
+                    key={course.id}
+                    type="button"
+                    onClick={() => select(course)}
+                    aria-current={active || undefined}
+                    className={`w-full border-b border-gray-50 p-3 text-left transition-colors hover:bg-gray-50 ${
+                      active ? 'bg-[var(--primary-light)] hover:bg-[var(--primary-light)]' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Flag emoji={course.flagEmoji} height={22} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">{course.name}</p>
+                        <p className="flex items-center gap-1 truncate text-xs text-gray-500">
+                          <Users size={12} /> {course.studentCount ?? 0} o'quvchi
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
 
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col">
-          {!selectedCourse ? (
-            <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-              Kursni tanlang
-            </div>
+        {/* Guruh yozishmasi */}
+        <div className={`${selected ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
+          {selected && token ? (
+            <GroupRoom key={selected.id} course={selected} token={token} myId={user?.id} onBack={() => select(null)} />
           ) : (
-            <>
-              {/* Header */}
-              <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                <span className="text-2xl">{selectedCourse.flagEmoji || '📚'}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{selectedCourse.name}</p>
-                  <p className="text-xs text-gray-500">{selectedCourse.studentCount ?? 0} o'quvchi</p>
-                </div>
-                {!activeConference && (
-                  <button
-                    onClick={() => setShowAnnounce((v) => !v)}
-                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-dark)] transition-colors"
-                  >
-                    <Video size={16} />
-                    Konferensiya e'lon qilish
-                  </button>
-                )}
-              </div>
-
-              {/* E'lon qilish formasi */}
-              {!activeConference && showAnnounce && (
-                <div className="px-4 py-4 bg-gray-50 border-b border-gray-100 space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Konferensiya haqida (mavzu / izoh)</label>
-                    <input
-                      type="text"
-                      value={note0}
-                      onChange={(e) => setNote0(e.target.value)}
-                      placeholder="Masalan: Grammatika bo'yicha jonli dars"
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Boshlanish vaqti</label>
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
-                        <input type="radio" checked={mode === 'now'} onChange={() => setMode('now')} />
-                        Hozir
-                      </label>
-                      <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
-                        <input type="radio" checked={mode === 'scheduled'} onChange={() => setMode('scheduled')} />
-                        Soat tanlash
-                      </label>
-                      {mode === 'scheduled' && (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="date"
-                            value={dateStr}
-                            onChange={(e) => setDateStr(e.target.value)}
-                            className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]"
-                          />
-                          <select
-                            value={hour}
-                            onChange={(e) => setHour(e.target.value)}
-                            className="px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-                          >
-                            {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')).map((h) => (
-                              <option key={h} value={h}>{h}</option>
-                            ))}
-                          </select>
-                          <span className="text-gray-500">:</span>
-                          <select
-                            value={minute}
-                            onChange={(e) => setMinute(e.target.value)}
-                            className="px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-                          >
-                            {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={announceConference}
-                      disabled={mode === 'scheduled' && !dateStr}
-                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-dark)] disabled:opacity-50 transition-colors"
-                    >
-                      <Video size={16} />
-                      E'lon qilish
-                    </button>
-                    <button
-                      onClick={() => setShowAnnounce(false)}
-                      className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
-                    >
-                      Bekor qilish
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Pin banner */}
-              {activeConference && (
-                <div className="px-4 py-3 bg-green-50 border-b border-green-100 flex items-center gap-3">
-                  <p className="flex-1 text-sm font-medium text-green-800">
-                    {activeConference.text || '📹 Video konferensiya davom etmoqda'}
-                  </p>
-                  {isStarted(activeConference) ? (
-                    <button
-                      onClick={() => joinConference(activeConference.conferenceUrl)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <ExternalLink size={14} />
-                      Qo'shilish
-                    </button>
-                  ) : (
-                    <span className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 rounded-lg">
-                      {startLabel(activeConference)} da boshlanadi
-                    </span>
-                  )}
-                  <button
-                    onClick={endConference}
-                    className="px-3 py-1.5 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                  >
-                    Tugatish
-                  </button>
-                </div>
-              )}
-
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {messages.map((msg, idx) => {
-                  const isMe = msg.senderId === user?.id;
-
-                  // Konferensiya xabari - alohida karta
-                  if (msg.messageType === 'conference') {
-                    return (
-                      <div key={msg.id ?? idx} className="flex justify-center">
-                        <div className="max-w-[80%] w-full px-4 py-3 rounded-xl bg-green-50 border border-green-100 text-center">
-                          <div className="flex items-center justify-center gap-2 text-sm font-medium text-green-800">
-                            <Video size={16} />
-                            {msg.text || (msg.conferenceActive
-                              ? 'Video konferensiya boshlandi'
-                              : 'Video konferensiya tugadi')}
-                          </div>
-                          {msg.conferenceActive && (
-                            isStarted(msg) ? (
-                              <button
-                                onClick={() => joinConference(msg.conferenceUrl)}
-                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                              >
-                                <ExternalLink size={14} />
-                                Qo'shilish
-                              </button>
-                            ) : (
-                              <div className="mt-2 text-xs text-green-700">
-                                {startLabel(msg)} da boshlanadi
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div key={msg.id ?? idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[70%] px-4 py-2 rounded-2xl text-sm ${
-                        isMe
-                          ? 'bg-[var(--primary)] text-white rounded-br-md'
-                          : 'bg-gray-100 text-gray-900 rounded-bl-md'
-                      }`}>
-                        {!isMe && msg.senderName && (
-                          <div className="text-[11px] font-semibold text-[var(--primary)] mb-0.5">{msg.senderName}</div>
-                        )}
-                        {msg.text}
-                        <div className={`text-[10px] mt-1 ${isMe ? 'text-white/70' : 'text-gray-400'}`}>
-                          {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Input */}
-              <div className="p-4 border-t border-gray-100">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                    placeholder="Xabar yozing..."
-                    className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 focus:border-[var(--primary)]"
-                  />
-                  <button
-                    onClick={sendMessage}
-                    disabled={!input.trim()}
-                    className="w-10 h-10 rounded-xl bg-[var(--primary)] text-white flex items-center justify-center hover:bg-[var(--primary-dark)] disabled:opacity-50 transition-colors"
-                  >
-                    <Send size={16} />
-                  </button>
-                </div>
-              </div>
-            </>
+            <EmptyState
+              className="flex-1"
+              icon={Users}
+              title="Kursni tanlang"
+              description="Chapdagi ro'yxatdan kurs guruhini tanlang."
+            />
           )}
         </div>
       </div>
