@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Bot, Eye, EyeOff, MessageSquareText, ShieldCheck } from 'lucide-react';
+import { Bot, Eye, EyeOff, MessageSquareText, ShieldCheck, Smartphone } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
 import { ErrorState, Skeleton } from '../../components/ui/States';
@@ -645,6 +645,201 @@ export default function SettingsPage() {
           </div>
         </div>
       </form>
+
+      <AppVersionCard />
     </div>
+  );
+}
+
+
+/* ───────────────────────── Mobil ilova versiyasi ──────────────────────── */
+
+interface AppVersionData {
+  latestBuild: number;
+  latestVersion?: string | null;
+  message?: string | null;
+  storeUrl?: string | null;
+  updatedAt?: string | null;
+}
+
+/**
+ * Yangi build chiqarilganda shu yerdan build raqami oshiriladi — undan past
+ * buildli ilovalar kirishda ixtiyoriy yangilanish oynasini ko'radi
+ * (yangilamaguncha har kirishda chiqadi). Yuqoridagi formadan alohida saqlanadi.
+ */
+function AppVersionCard() {
+  const [data, setData] = useState<AppVersionData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [form, setForm] = useState({ latestBuild: '', latestVersion: '', message: '', storeUrl: '' });
+  const [saving, setSaving] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+
+  const apply = (v: AppVersionData) => {
+    setData(v);
+    setForm({
+      latestBuild: String(v.latestBuild ?? ''),
+      latestVersion: v.latestVersion ?? '',
+      message: v.message ?? '',
+      storeUrl: v.storeUrl ?? '',
+    });
+  };
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get('/app-version');
+      const v = (res.data?.data ?? null) as AppVersionData | null;
+      if (v) {
+        apply(v);
+        setLoadError(null);
+      } else {
+        setLoadError("Versiya ma'lumoti topilmadi.");
+      }
+    } catch (e) {
+      setLoadError(apiErrorMessage(e, "Ilova versiyasini yuklab bo'lmadi."));
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- birinchi yuklash
+    void load();
+  }, [load]);
+
+  const dirty =
+    data !== null &&
+    (form.latestBuild !== String(data.latestBuild ?? '') ||
+      form.latestVersion !== (data.latestVersion ?? '') ||
+      form.message !== (data.message ?? '') ||
+      form.storeUrl !== (data.storeUrl ?? ''));
+
+  const handleSave = async () => {
+    const build = Number(form.latestBuild);
+    if (!Number.isInteger(build) || build < 1) {
+      setBuildError('Build raqami 1 dan katta butun son bo\'lishi kerak.');
+      return;
+    }
+    if (form.storeUrl.trim() && !form.storeUrl.trim().startsWith('https://')) {
+      toast.error("Do'kon havolasi https:// bilan boshlanishi kerak.");
+      return;
+    }
+    if (data && build < data.latestBuild) {
+      const ok = await confirmDialog({
+        title: 'Build raqami kamaytirilsinmi?',
+        message: `Hozirgi qiymat ${data.latestBuild}. Kichikroq (${build}) qiymat yangilanish oynasini o'chirib qo'yishi mumkin.`,
+        confirmText: 'Saqlash',
+      });
+      if (!ok) return;
+    }
+    setBuildError(null);
+    setSaving(true);
+    try {
+      const res = await api.put('/admin/app-version', {
+        latestBuild: build,
+        latestVersion: form.latestVersion.trim(),
+        message: form.message.trim(),
+        storeUrl: form.storeUrl.trim(),
+      });
+      const v = (res.data?.data ?? null) as AppVersionData | null;
+      if (v) apply(v);
+      toast.success("Ilova versiyasi saqlandi — eski buildlarda yangilanish oynasi chiqadi");
+    } catch (e) {
+      toast.error(apiErrorMessage(e, "Saqlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      icon={Smartphone}
+      iconClass="bg-[var(--primary)]/10 text-[var(--primary)]"
+      title="Mobil ilova versiyasi"
+      description="Yangi build chiqarilganda raqamni oshiring — eski ilovalar kirishda yangilanish oynasini ko'radi (yangilash ixtiyoriy, lekin har kirishda chiqadi)."
+      badge={
+        data ? (
+          <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+            Joriy: build {data.latestBuild}
+          </span>
+        ) : null
+      }
+    >
+      {loadError ? (
+        <div className="rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-700">
+          {loadError}{' '}
+          <button type="button" className="font-semibold underline" onClick={() => void load()}>
+            Qayta urinish
+          </button>
+        </div>
+      ) : !data ? (
+        <Skeleton className="h-24 w-full" />
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              id="app-build"
+              label="So'nggi build raqami"
+              hint="pubspec'dagi + dan keyingi raqam (masalan 1.0.1+16 dagi 16)"
+              error={buildError ?? undefined}
+            >
+              <input
+                id="app-build"
+                type="number"
+                min={1}
+                step={1}
+                value={form.latestBuild}
+                disabled={saving}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, latestBuild: e.target.value }));
+                  setBuildError(null);
+                }}
+                className={`${inputClass}${buildError ? ` ${inputErrorClass}` : ''}`}
+              />
+            </Field>
+            <Field id="app-version-name" label="Versiya nomi" hint="Oynada ko'rsatiladi (masalan 1.0.1)">
+              <input
+                id="app-version-name"
+                value={form.latestVersion}
+                maxLength={20}
+                disabled={saving}
+                onChange={(e) => setForm((f) => ({ ...f, latestVersion: e.target.value }))}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          <div className="mt-4">
+            <Field id="app-update-message" label="Oynadagi xabar">
+              <textarea
+                id="app-update-message"
+                rows={2}
+                maxLength={1000}
+                value={form.message}
+                disabled={saving}
+                onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          <div className="mt-4">
+            <Field id="app-store-url" label="Do'kon havolasi" hint="Google Play sahifasi (https://...)">
+              <input
+                id="app-store-url"
+                value={form.storeUrl}
+                maxLength={500}
+                disabled={saving}
+                onChange={(e) => setForm((f) => ({ ...f, storeUrl: e.target.value }))}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <span className="text-xs text-gray-400">
+              {data.updatedAt ? `Oxirgi o'zgarish: ${formatDateTime(data.updatedAt)}` : ''}
+            </span>
+            <Button onClick={() => void handleSave()} loading={saving} disabled={!dirty}>
+              {saving ? 'Saqlanmoqda...' : 'Saqlash'}
+            </Button>
+          </div>
+        </>
+      )}
+    </SectionCard>
   );
 }
