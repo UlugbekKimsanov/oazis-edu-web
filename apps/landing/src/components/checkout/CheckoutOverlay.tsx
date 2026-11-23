@@ -73,9 +73,11 @@ export function CheckoutOverlay({
     }
   };
 
+  const ready = phase === 'ready' && info !== null;
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-950/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-gray-950/60 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="checkout-overlay-title"
@@ -83,25 +85,29 @@ export function CheckoutOverlay({
         if (event.currentTarget === event.target) onClose();
       }}
     >
-      <div className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+      <div className="relative my-auto w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+          className={`absolute right-3 top-3 z-10 rounded-full p-2 transition ${
+            ready
+              ? 'text-white/80 hover:bg-white/15 hover:text-white'
+              : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700'
+          }`}
           aria-label="Yopish"
         >
           <X className="h-5 w-5" />
         </button>
 
         {phase === 'loading' && (
-          <div className="flex flex-col items-center gap-4 py-10">
+          <div className="flex flex-col items-center gap-4 p-12">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-light border-t-primary" />
             <p className="text-sm text-gray-500">Ma'lumotlar yuklanmoqda...</p>
           </div>
         )}
 
         {phase === 'error' && (
-          <div className="flex flex-col items-center gap-5 py-6 text-center">
+          <div className="flex flex-col items-center gap-5 p-8 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-2xl">
               !
             </div>
@@ -118,86 +124,92 @@ export function CheckoutOverlay({
         )}
 
         {phase === 'ready' && info && (
-          <div className="pr-6">
-            {info.userName && (
-              <p className="text-sm font-medium text-primary">Salom, {info.userName}!</p>
-            )}
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <h2 id="checkout-overlay-title" className="text-xl font-bold text-gray-900">
-                {info.title}
-              </h2>
-              <span className="rounded-full bg-primary-light px-3 py-1 text-xs font-semibold text-primary">
+          <>
+            {/* Sarlavha qismi: mahsulot nomi va narxi */}
+            <div className="relative bg-gradient-to-br from-primary to-primary-dark px-6 pb-6 pt-8 text-white sm:px-8">
+              <span className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10" />
+              <span className="pointer-events-none absolute -bottom-12 -left-8 h-28 w-28 rounded-full bg-white/10" />
+              <span className="relative inline-block rounded-full bg-white/20 px-3 py-1 text-xs font-semibold ring-1 ring-white/25">
                 {info.productType === 'book' ? 'Kitob' : 'Kurs'}
               </span>
+              <h2
+                id="checkout-overlay-title"
+                className="relative mt-3 pr-8 text-2xl font-bold leading-tight"
+              >
+                {info.title}
+              </h2>
+              <p className="relative mt-2 text-3xl font-extrabold tracking-tight">{info.priceLabel}</p>
             </div>
-            <p className="mt-3 text-2xl font-bold text-primary">{info.priceLabel}</p>
-            {info.giftBooks && info.giftBooks.length > 0 && (
-              <p className="mt-3 flex items-start gap-2.5 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
-                <span className="gift-gold mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
-                  <Gift className="h-3.5 w-3.5" />
-                </span>
-                <span>
-                  <span className="font-semibold">Sovg'a elektron kitob:</span>{' '}
-                  {info.giftBooks.join(', ')}
-                  <span className="block text-xs text-amber-900/75">
-                    To'lovdan keyin ilovadagi kutubxonangizga bepul qo'shiladi.
-                  </span>
-                </span>
-              </p>
-            )}
-            {info.deliveryLabel && (
-              <p className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-                <Truck className="h-4 w-4 shrink-0 text-primary" />
-                {info.deliveryLabel}
-              </p>
-            )}
 
-            <p className="mb-2 mt-6 text-sm font-semibold text-gray-700">To'lov usulini tanlang</p>
-            <div className="flex flex-col gap-2" role="radiogroup" aria-label="To'lov usullari">
-              {info.methods.map((m) => {
-                const selected = method === m.code;
-                return (
-                  <button
-                    key={m.code}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setMethod(m.code)}
-                    disabled={paying}
-                    className={`flex w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left text-sm font-medium transition-colors disabled:opacity-60 ${
-                      selected
-                        ? 'border-primary bg-primary-light text-gray-900'
-                        : 'border-gray-200 text-gray-700 hover:border-primary/40'
-                    }`}
-                  >
-                    <span
-                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-                        selected ? 'border-primary' : 'border-gray-300'
+            <div className="px-6 pb-6 pt-5 sm:px-8 sm:pb-8">
+              {info.giftBooks && info.giftBooks.length > 0 && (
+                <p className="flex items-start gap-2.5 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
+                  <span className="gift-gold mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                    <Gift className="h-3.5 w-3.5" />
+                  </span>
+                  <span>
+                    <span className="font-semibold">Sovg'a elektron kitob:</span>{' '}
+                    {info.giftBooks.join(', ')}
+                    <span className="block text-xs text-amber-900/75">
+                      To'lovdan keyin ilovadagi kutubxonangizga bepul qo'shiladi.
+                    </span>
+                  </span>
+                </p>
+              )}
+              {info.deliveryLabel && (
+                <p
+                  className={`flex items-center gap-2.5 rounded-xl bg-primary-light px-3 py-2.5 text-sm font-medium text-primary-dark ${
+                    info.giftBooks && info.giftBooks.length > 0 ? 'mt-2' : ''
+                  }`}
+                >
+                  <Truck className="h-4 w-4 shrink-0 text-primary" />
+                  {info.deliveryLabel}
+                </p>
+              )}
+
+              <p className="mb-2 mt-5 text-sm font-semibold text-gray-700">To'lov usulini tanlang</p>
+              <div className="flex flex-col gap-2" role="radiogroup" aria-label="To'lov usullari">
+                {info.methods.map((m) => {
+                  const selected = method === m.code;
+                  return (
+                    <button
+                      key={m.code}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setMethod(m.code)}
+                      disabled={paying}
+                      className={`flex w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left text-sm font-medium transition-colors disabled:opacity-60 ${
+                        selected
+                          ? 'border-primary bg-primary-light text-gray-900'
+                          : 'border-gray-200 bg-gray-50/70 text-gray-700 hover:border-primary/40 hover:bg-white'
                       }`}
                     >
-                      {selected && <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
-                    </span>
-                    <span className="flex-1">{m.name}</span>
-                    {m.isNasiya && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                        Nasiya
+                      <span
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+                          selected ? 'border-primary' : 'border-gray-300'
+                        }`}
+                      >
+                        {selected && <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
+                      <span className="flex-1">{m.name}</span>
+                      {m.isNasiya && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                          Nasiya
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {payError && <p className="mt-3 text-sm text-red-600">{payError}</p>}
+
+              <Button className="mt-6 w-full" onClick={handlePay} disabled={paying || !method}>
+                {paying ? "Yo'naltirilmoqda..." : "To'lovga o'tish"}
+              </Button>
             </div>
-
-            {payError && <p className="mt-3 text-sm text-red-600">{payError}</p>}
-
-            <Button
-              className="mt-6 w-full"
-              onClick={handlePay}
-              disabled={paying || !method}
-            >
-              {paying ? "Yo'naltirilmoqda..." : "To'lovga o'tish"}
-            </Button>
-          </div>
+          </>
         )}
       </div>
     </div>

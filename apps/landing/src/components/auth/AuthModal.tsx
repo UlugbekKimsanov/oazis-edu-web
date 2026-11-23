@@ -242,11 +242,15 @@ function AuthDialog({
         if (event.currentTarget === event.target) onClose();
       }}
     >
-      <div className="relative my-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+      <div className="relative my-auto w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+        {/* Sarlavha qismi */}
+        <div className="relative bg-gradient-to-br from-primary to-primary-dark px-6 pb-6 pt-7 text-white sm:px-8">
+        <span className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10" />
+        <span className="pointer-events-none absolute -bottom-12 -left-8 h-28 w-28 rounded-full bg-white/10" />
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+          className="absolute right-3 top-3 z-10 rounded-full p-2 text-white/80 transition hover:bg-white/15 hover:text-white"
           aria-label="Yopish"
         >
           <X className="h-5 w-5" />
@@ -256,19 +260,19 @@ function AuthDialog({
           <button
             type="button"
             onClick={() => switchView(otpFor)}
-            className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-primary"
+            className="relative mb-3 inline-flex items-center gap-1 text-sm font-medium text-white/80 hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" /> Orqaga
           </button>
         )}
 
-        <h2 id="auth-modal-title" className="pr-10 text-2xl font-bold text-gray-900">
+        <h2 id="auth-modal-title" className="relative pr-10 text-2xl font-bold text-white">
           {title}
         </h2>
-        <p className="mb-6 mt-2 text-sm leading-6 text-gray-500">
+        <p className="relative mt-2 text-sm leading-6 text-white/85">
           {view === 'otp' ? (
             <>
-              <span className="font-semibold text-gray-700">{normalizedEmail}</span> manziliga{' '}
+              <span className="font-semibold text-white">{normalizedEmail}</span> manziliga{' '}
               {OTP_LENGTH} xonali tasdiqlash kodi yuborildi. Bir nechta xat kelgan bo'lsa, eng
               oxirgisidagi kodni kiriting.
             </>
@@ -279,7 +283,9 @@ function AuthDialog({
               : 'OAZIS hisobingizga kiring.')
           )}
         </p>
+        </div>
 
+        <div className="px-6 pb-6 pt-5 sm:px-8 sm:pb-8">
         {view === 'login' && (
           <>
             <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4" noValidate>
@@ -453,6 +459,7 @@ function AuthDialog({
             </button>
           </p>
         )}
+        </div>
       </div>
     </div>
   );
