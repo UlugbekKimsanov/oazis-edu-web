@@ -11,7 +11,16 @@ type Phase = 'loading' | 'ready' | 'error';
  * Token bo'yicha mahsulot va to'lov usullarini ko'rsatadi, "To'lovga o'tish"
  * bosilganda provayderning checkoutUrl sahifasiga yo'naltiradi.
  */
-export function CheckoutOverlay({ token, onClose }: { token: string; onClose: () => void }) {
+export function CheckoutOverlay({
+  token,
+  onClose,
+  onBeforeRedirect,
+}: {
+  token: string;
+  onClose: () => void;
+  /** To'lov provayderiga yo'naltirishdan bevosita oldin chaqiriladi. */
+  onBeforeRedirect?: () => void;
+}) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [info, setInfo] = useState<CheckoutInfo | null>(null);
   const [method, setMethod] = useState<string | null>(null);
@@ -56,6 +65,7 @@ export function CheckoutOverlay({ token, onClose }: { token: string; onClose: ()
     try {
       const url = await payCheckout(token, method);
       // Redirect boshlanguncha tugma "Yo'naltirilmoqda..." holatida qoladi.
+      onBeforeRedirect?.();
       window.location.href = url;
     } catch {
       setPayError("To'lovni boshlab bo'lmadi. Qaytadan urinib ko'ring.");
@@ -122,11 +132,14 @@ export function CheckoutOverlay({ token, onClose }: { token: string; onClose: ()
             </div>
             <p className="mt-3 text-2xl font-bold text-primary">{info.priceLabel}</p>
             {info.giftBooks && info.giftBooks.length > 0 && (
-              <p className="mt-3 flex items-start gap-2 rounded-xl bg-pink-50 px-3 py-2.5 text-sm text-pink-700">
-                <Gift className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="mt-3 flex items-start gap-2.5 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
+                <span className="gift-gold mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                  <Gift className="h-3.5 w-3.5" />
+                </span>
                 <span>
-                  <span className="font-semibold">Sovg'a kitob:</span> {info.giftBooks.join(', ')}
-                  <span className="block text-xs text-pink-600/80">
+                  <span className="font-semibold">Sovg'a elektron kitob:</span>{' '}
+                  {info.giftBooks.join(', ')}
+                  <span className="block text-xs text-amber-900/75">
                     To'lovdan keyin ilovadagi kutubxonangizga bepul qo'shiladi.
                   </span>
                 </span>

@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { landingContent, type LandingContent } from './data/landing';
-import { fetchCourses, fetchLandingContent, type ApiCourse } from './lib/api';
+import {
+  fetchBooks,
+  fetchCourses,
+  fetchLandingContent,
+  type ApiBook,
+  type ApiCourse,
+} from './lib/api';
+import { clearPendingPurchase, loadPendingPurchase, savePendingPurchase } from './lib/appLinks';
+import { AppDownloadDialog, type AppDownloadInfo } from './components/app/AppDownloadDialog';
 import {
   SessionExpiredError,
   apiErrorMessage,
   clearSession,
   createCheckoutToken,
+  enrollFreeCourse,
   loadSession,
   productKey,
   saveSession,
@@ -22,7 +31,7 @@ import { Goals } from './components/sections/Goals';
 import { Testimonials } from './components/sections/Testimonials';
 import { Courses } from './components/sections/Courses';
 import { Books } from './components/sections/Books';
-import { Bonuses } from './components/sections/Bonuses';
+import { Bonuses, type GiftBookItem } from './components/sections/Bonuses';
 import { SignupForm } from './components/sections/SignupForm';
 import { Footer } from './components/sections/Footer';
 import { LeadModal } from './components/forms/LeadModal';
@@ -42,7 +51,13 @@ function App() {
   // Kirishdan keyin davom ettiriladigan xarid.
   const [pendingProduct, setPendingProduct] = useState<PurchaseProduct | null>(null);
   const [buyingKey, setBuyingKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ title: string; text: string } | null>(null);
+
+  // "Darslarni ilovada davom ettiring" oynasi (to'lovdan keyin yoki bepul kurs boshlanganda).
+  const [appDialog, setAppDialog] = useState<AppDownloadInfo | null>(null);
+  // To'lov oynasi qaysi mahsulot uchun ochilgani — to'lovga ketishdan oldin eslab qolinadi.
+  const checkoutProductRef = useRef<PurchaseProduct | null>(null);
+  // Kitoblar bo'limini qayta yuklash (xarid tasdiqlangach "Sotib olingan" chiqishi uchun).
+  const [booksRefreshKey, setBooksRefreshKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -69,6 +84,42 @@ function App() {
     };
   }, [authToken]);
 
+  // Kitoblar katalogi — "Kitoblar" va "Bonuslar" bo'limlari uchun. Kirish/chiqishda va
+  // xarid tasdiqlangach (booksRefreshKey) qayta so'raladi.
+  const [books, setBooks] = useState<ApiBook[]>([]);
+  useEffect(() => {
+    let active = true;
+    fetchBooks(authToken).then((list) => {
+      if (active) setBooks(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [authToken, booksRefreshKey]);
+
+  // Bonuslar: sotuvdagi kurslarga admin biriktirgan HAQIQIY sovg'a kitoblar.
+  const giftItems = useMemo<GiftBookItem[]>(() => {
+    const byBook = new Map<number, GiftBookItem>();
+    for (const course of courses ?? []) {
+      (course.giftBookIds ?? []).forEach((bookId, index) => {
+        const book = books.find((b) => b.id === bookId);
+        const existing = byBook.get(bookId);
+        if (existing) {
+          existing.courses.push(course.name);
+          return;
+        }
+        byBook.set(bookId, {
+          bookId,
+          title: book?.title ?? course.giftBooks?.[index] ?? '',
+          cover: book?.coverUrl,
+          category: book?.category,
+          courses: [course.name],
+        });
+      });
+    }
+    return [...byBook.values()].filter((g) => g.title);
+  }, [courses, books]);
+
   // Token URL orqali referrer/analytics'ga sizib chiqmasligi uchun
   // u o'qilgan zahoti manzildan olib tashlanadi; overlay state orqali ochiq qoladi.
   useEffect(() => {
@@ -81,12 +132,85 @@ function App() {
 
   const closeCheckout = useCallback(() => setCheckoutToken(null), []);
 
+  // To'lov provayderiga ketishdan oldin xaridni eslab qolamiz — foydalanuvchi saytga
+  // qaytganda to'lov tasdiqlangan bo'lsa, shu zahoti ilovaga yo'naltiruvchi oyna chiqadi.
+  const rememberCheckout = useCallback(() => {
+    const product = checkoutProductRef.current;
+    if (product) savePendingPurchase(product);
+  }, []);
+
+  // To'lovdan qaytish: eslab qolingan xarid hisobga tushganini tekshiramiz. Birinchi
+  // tekshiruv darhol; to'lov tasdig'i kechiksa, ~45 soniya davomida qayta so'raladi.
+  // To'lov bekor qilingan bo'lsa hech narsa ko'rsatilmaydi.
+  useEffect(() => {
+    const pending = loadPendingPurchase();
+    if (!pending || !authToken) return;
+    let active = true;
+    let attempt = 0;
+    let timer: number | undefined;
+
+    const check = async () => {
+      attempt += 1;
+      let done: boolean;
+      let printBook = false;
+      if (pending.type === 'course') {
+        const list = await fetchCourses(authToken);
+        if (!active) return;
+        done = list.some((c) => c.id === pending.id && c.isEnrolled);
+        if (done) setCourses(list);
+      } else {
+        const list = await fetchBooks(authToken);
+        if (!active) return;
+        const bought = list.find((b) => b.id === pending.id && b.isPurchased);
+        done = Boolean(bought);
+        printBook = bought?.category === 'print';
+        if (done) setBooksRefreshKey((k) => k + 1);
+      }
+      if (done) {
+        clearPendingPurchase();
+        setAppDialog(
+          pending.type === 'course'
+            ? {
+                tone: 'success',
+                hasAccount: true,
+                title: "To'lov qabul qilindi!",
+                text: `«${pending.title}» kursi hisobingizda ochildi. Darslarni OAZIS ilovasida davom ettirishingiz mumkin.`,
+              }
+            : printBook
+              ? {
+                  tone: 'success',
+                  hasAccount: true,
+                  mode: 'delivery',
+                  title: "To'lov qabul qilindi!",
+                  text: `«${pending.title}» bosma kitobi uchun buyurtmangiz qabul qilindi. Tez orada operatorlarimiz ushbu kitobni kerakli manzilga yetkazib berish bo'yicha siz bilan aloqaga chiqishadi.`,
+                }
+              : {
+                  tone: 'success',
+                  hasAccount: true,
+                  title: "To'lov qabul qilindi!",
+                  text: `«${pending.title}» elektron kitobi hisobingizga qo'shildi. Uni OAZIS ilovasidagi kutubxonangizda o'qishingiz mumkin.`,
+                },
+        );
+        return;
+      }
+      if (attempt < 15) timer = window.setTimeout(() => void check(), 3000);
+    };
+    void check();
+
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [authToken]);
+
   /** Kirgan foydalanuvchi uchun checkout tokenini olib, to'lov oynasini ochadi. */
   const startCheckout = useCallback(async (product: PurchaseProduct, buyer: AuthUser) => {
     setBuyingKey(productKey(product));
-    setNotice(null);
+
     try {
-      setCheckoutToken(await createCheckoutToken(buyer.token, product.type, product.id));
+      const token = await createCheckoutToken(buyer.token, product.type, product.id);
+      checkoutProductRef.current = product;
+      setCheckoutToken(token);
     } catch (error) {
       if (error instanceof SessionExpiredError) {
         // Token eskirgan — qayta kirishni so'raymiz va xaridni davom ettiramiz.
@@ -95,7 +219,11 @@ function App() {
         setPendingProduct(product);
         setAuthOpen(true);
       } else {
-        setNotice({
+        // Sabab ko'zga tashlanishi shart (masalan, kurs allaqachon olingan) — markazdagi oyna.
+        setAppDialog({
+          tone: 'warning',
+          mode: 'message',
+          hasAccount: true,
           title: 'Xarid davom etmadi',
           text: `«${product.title}»: ${apiErrorMessage(error, "xaridni boshlab bo'lmadi. Qayta urinib ko'ring.")}`,
         });
@@ -142,12 +270,43 @@ function App() {
     setUser(null);
   }, []);
 
-  // Kirgan foydalanuvchi bepul mahsulotni bossa: ariza formasi unga ko'rsatilmaydi,
-  // shuning uchun mahsulot qayerda ochilishini aytamiz.
-  const handleFreeInfo = useCallback((title: string) => {
-    setNotice({
-      title: 'Bu bepul',
-      text: `«${title}» bepul — to'lov kerak emas. Uni OAZIS ilovasida shu hisobingiz bilan ochishingiz mumkin.`,
+  // Bepul kurs/kitob: to'lov yo'q — darslar ilovada o'tiladi, shuni tushuntirib,
+  // qurilmaga mos do'konga yo'naltiramiz. Kirgan foydalanuvchi bepul kursga darhol
+  // yoziladi (ilovada tayyor turishi uchun); xato bo'lsa ham oyna ko'rsatiladi.
+  const handleFree = useCallback(
+    (product: PurchaseProduct) => {
+      const isCourse = product.type === 'course';
+      if (user && isCourse) {
+        enrollFreeCourse(user.token, product.id)
+          .then(() => fetchCourses(user.token))
+          .then(setCourses)
+          .catch(() => undefined);
+      }
+      setAppDialog({
+        tone: 'info',
+        hasAccount: user !== null,
+        title: isCourse ? 'Darslar mobil ilovada' : 'Kitob mobil ilovada',
+        text: isCourse
+          ? `«${product.title}» kursini mobil ilova orqali o'rganishingiz mumkin.`
+          : `«${product.title}» elektron kitobini mobil ilova orqali o'qishingiz mumkin.`,
+      });
+    },
+    [user],
+  );
+
+  // Sotib olingan mahsulot bosilganda: u qayerda ochilishini eslatamiz.
+  const handleOwned = useCallback((product: PurchaseProduct) => {
+    setAppDialog({
+      tone: 'success',
+      hasAccount: true,
+      mode: product.print ? 'delivery' : 'app',
+      title: product.print ? 'Buyurtma qabul qilingan' : 'Bu sizda bor',
+      text:
+        product.type === 'course'
+          ? `«${product.title}» kursi hisobingizda ochiq. Darslarni OAZIS ilovasida davom ettirishingiz mumkin.`
+          : product.print
+            ? `«${product.title}» bosma kitobi uchun to'lovingiz qabul qilingan — operatorlarimiz ushbu kitobni kerakli manzilga yetkazib berish bo'yicha siz bilan aloqaga chiqishadi.`
+            : `«${product.title}» elektron kitobi hisobingizda bor. Uni OAZIS ilovasidagi kutubxonangizda o'qishingiz mumkin.`,
     });
   }, []);
 
@@ -176,17 +335,18 @@ function App() {
           title={content.coursesTitle}
           cardText={content.courseCard}
           courses={courses}
-          loggedIn={user !== null}
           buyingKey={buyingKey}
           onBuy={handleBuy}
-          onFreeInfo={handleFreeInfo}
+          onFree={handleFree}
+          onOwned={handleOwned}
         />
-        <Bonuses title={content.bonusTitle} text={content.bonusText} books={content.bonusBooks} />
+        <Bonuses title={content.bonusTitle} text={content.bonusText} gifts={giftItems} />
         <Books
-          authToken={authToken}
+          books={books}
           buyingKey={buyingKey}
           onBuy={handleBuy}
-          onFreeInfo={handleFreeInfo}
+          onFree={handleFree}
+          onOwned={handleOwned}
         />
         {/* Ariza formasi faqat hali kirmagan mehmon uchun. */}
         {!user && <SignupForm cta={content.cta} formCopy={content.leadForm} />}
@@ -210,36 +370,13 @@ function App() {
         onAuthenticated={handleAuthenticated}
       />
       {checkoutToken && (
-        <CheckoutOverlay token={checkoutToken} onClose={closeCheckout} />
+        <CheckoutOverlay
+          token={checkoutToken}
+          onClose={closeCheckout}
+          onBeforeRedirect={rememberCheckout}
+        />
       )}
-      {notice && (
-        // Xarid davom etmagan sababi ko'zga tashlanishi shart (masalan, kurs allaqachon
-        // olingan) — shuning uchun burchakdagi toast emas, markazdagi oyna.
-        <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-gray-950/60 p-4 backdrop-blur-sm"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="purchase-notice-title"
-          onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setNotice(null);
-          }}
-        >
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl sm:p-8">
-            <h2 id="purchase-notice-title" className="text-xl font-bold text-gray-900">
-              {notice.title}
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-gray-600">{notice.text}</p>
-            <button
-              type="button"
-              autoFocus
-              className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-              onClick={() => setNotice(null)}
-            >
-              Tushunarli
-            </button>
-          </div>
-        </div>
-      )}
+      {appDialog && <AppDownloadDialog info={appDialog} onClose={() => setAppDialog(null)} />}
     </div>
   );
 }

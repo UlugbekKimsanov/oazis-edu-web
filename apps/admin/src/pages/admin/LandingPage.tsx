@@ -78,7 +78,7 @@ import { ErrorState, LoadingState } from '../../components/ui/States';
 import api, { API_ORIGIN, fileUrl } from '../../lib/api';
 import { apiErrorMessage } from '../../lib/errors';
 import { formatMoney, formatNumber } from '../../lib/format';
-import type { Course as SystemCourse } from '../../lib/types';
+import type { Book as SystemBook, Course as SystemCourse } from '../../lib/types';
 import { confirmDialog, toast, useUiStore } from '../../stores/ui-store';
 import {
   LANDING_ICON_NAMES,
@@ -418,11 +418,8 @@ function validateLandingContent(c: LandingContent): LandingIssue[] {
   // Bonuslar
   text('bonus', "Bo'lim sarlavhasi", c.bonusTitle, 255);
   text('bonus', 'Bonus matni', c.bonusText, 4000);
-  count('bonus', 'Kitoblar', c.bonusBooks.length, 100);
-  c.bonusBooks.forEach((book, index) => {
-    text('bonus', `${index + 1}-kitob nomi`, book.title, 255);
-    image('bonus', `${index + 1}-kitob muqovasi`, book.cover);
-  });
+  // Sovg'a kitoblar endi kurslarga biriktirilgan haqiqiy kitoblardan olinadi — kontentdagi
+  // eski `bonusBooks` ro'yxati saytda ko'rsatilmaydi va bu yerda tahrirlanmaydi.
 
   // Ariza formasi
   text('signup', 'Chap tomondagi matn', c.cta.description, 4000);
@@ -1792,67 +1789,136 @@ function CoursesEditor({
   );
 }
 
+/**
+ * Landing «Bonuslar» bo'limi — kurslarga biriktirilgan HAQIQIY sovg'a kitoblar.
+ * Bu yerda kitob qo'shilmaydi: sovg'a «Kurslar» (kurs qatoridagi sovg'a belgisi) yoki
+ * «Kutubxona» (kitob qatoridagi sovg'a belgisi) bo'limida biriktiriladi. Saytda faqat
+ * sotuvdagi kurslarning sovg'alari ko'rinadi; birorta ham bo'lmasa bo'lim saytda chiqmaydi.
+ */
 function BonusesEditor({
   title,
   onTitle,
   text,
   onText,
-  books,
-  onBooks,
 }: {
   title: string;
   onTitle: (v: string) => void;
   text: string;
   onText: (v: string) => void;
-  books: LandingContent['bonusBooks'];
-  onBooks: (b: LandingContent['bonusBooks']) => void;
 }) {
+  const navigate = useNavigate();
+  const [data, setData] = useState<{
+    links: { courseId: number; bookId: number }[];
+    courses: SystemCourse[];
+    books: SystemBook[];
+  } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const listOf = <T,>(res: { data?: { data?: unknown } }): T[] => {
+      const list: unknown = res.data?.data ?? res.data;
+      return Array.isArray(list) ? (list as T[]) : [];
+    };
+    Promise.all([
+      api.get('/admin/course-gift-books'),
+      api.get('/admin/courses'),
+      api.get('/admin/books'),
+    ])
+      .then(([linksRes, coursesRes, booksRes]) => {
+        if (!active) return;
+        setData({
+          links: listOf<{ courseId: number; bookId: number }>(linksRes),
+          courses: listOf<SystemCourse>(coursesRes),
+          books: listOf<SystemBook>(booksRes),
+        });
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        if (active) setLoadError(apiErrorMessage(err, "Sovg'a kitoblarni yuklab bo'lmadi."));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Saytdagidek: faqat sotuvdagi kurslarning sovg'alari, kitob bo'yicha guruhlangan
+  const gifts = useMemo(() => {
+    if (!data) return [];
+    const byBook = new Map<number, { book: SystemBook; courses: string[] }>();
+    for (const link of data.links) {
+      const course = data.courses.find((c) => c.id === link.courseId);
+      const book = data.books.find((b) => b.id === link.bookId);
+      if (!course || !book || !course.onSale) continue;
+      const entry = byBook.get(book.id) ?? { book, courses: [] };
+      entry.courses.push(course.name);
+      byBook.set(book.id, entry);
+    }
+    return [...byBook.values()];
+  }, [data]);
+
+  const linkBtn = 'font-semibold underline';
+
   return (
     <PreviewSection bg="bg-[var(--primary-light)]" title={title} onTitle={onTitle}>
+      <p className="mx-auto mb-6 flex max-w-3xl items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+        <Info size={16} className="mt-0.5 shrink-0" />
+        <span>
+          Bu yerda kurslarga biriktirilgan haqiqiy sovg'a kitoblar ko'rinadi (faqat sotuvdagi
+          kurslarniki). Sovg'a{' '}
+          <button type="button" className={linkBtn} onClick={() => navigate('/admin/courses')}>
+            «Kurslar»
+          </button>{' '}
+          yoki{' '}
+          <button type="button" className={linkBtn} onClick={() => navigate('/admin/books')}>
+            «Kutubxona»
+          </button>{' '}
+          bo'limida biriktiriladi. Sovg'a bo'lmasa, bu bo'lim saytda ko'rsatilmaydi.
+        </span>
+      </p>
       <div className="grid items-center gap-10 lg:grid-cols-2">
-        <SortableList
-          items={books}
-          onChange={onBooks}
-          idPrefix="book"
-          describe={(item) => item.title}
-          containerClassName="grid grid-cols-3 gap-4 sm:grid-cols-4"
-          footer={
-            <AddCard
-              onClick={() => onBooks([...books, { id: Date.now(), title: 'Yangi kitob' }])}
-              label=""
-              className="aspect-[3/4] p-2"
-            />
-          }
-          renderItem={({ item, update, remove, handleProps }) => (
-            <div className="group/item relative">
-              <ItemControls handleProps={handleProps} onRemove={remove} align="left" />
-              <ImageSlot
-                value={item.cover}
-                onChange={(cover) => update({ cover })}
-                className="aspect-[3/4] w-full shadow-sm"
-                rounded="rounded-xl"
-              >
-                <div className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dark)] p-3 text-center text-white shadow-sm">
-                  <BookOpen className="h-7 w-7" />
-                  <InlineText
-                    dark
-                    value={item.title}
-                    onChange={(title) => update({ title })}
-                    className="w-full text-center text-[10px] font-medium leading-tight"
-                  />
-                </div>
-              </ImageSlot>
-              {item.cover ? (
-                <InlineText
-                  value={item.title}
-                  onChange={(title) => update({ title })}
-                  title="Kitob nomi (rasmning alt matni)"
-                  className="mt-1 w-full text-center text-[10px] text-gray-600"
-                />
-              ) : null}
+        <div>
+          {loadError ? (
+            <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</p>
+          ) : !data ? (
+            <p className="py-10 text-center text-sm text-gray-400">Yuklanmoqda...</p>
+          ) : gifts.length === 0 ? (
+            <p className="rounded-xl border-2 border-dashed border-gray-300 px-4 py-10 text-center text-sm text-gray-500">
+              Sotuvdagi kurslarga hali sovg'a kitob biriktirilmagan — bo'lim saytda ko'rinmaydi.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {gifts.map(({ book, courses }) => {
+                const cover = fileUrl(book.coverImage || book.coverUrl);
+                return (
+                  <div key={book.id} className="min-w-0">
+                    {cover ? (
+                      <img
+                        src={cover}
+                        alt={book.title}
+                        loading="lazy"
+                        className="aspect-[3/4] w-full rounded-xl bg-white object-cover shadow-sm"
+                      />
+                    ) : (
+                      <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dark)] text-white shadow-sm">
+                        <BookOpen className="h-8 w-8" />
+                      </div>
+                    )}
+                    <p className="mt-2 line-clamp-2 text-sm font-semibold text-gray-900" title={book.title}>
+                      {book.title}
+                    </p>
+                    <p className="mt-0.5 text-xs font-medium text-[var(--primary)]">
+                      {book.category === 'print' ? 'Bosma kitob' : 'Elektron kitob'}
+                    </p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-gray-600">
+                      {courses.map((c) => `«${c}»`).join(', ')} kursi bilan
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
-        />
+        </div>
         <div>
           <InlineArea
             value={text}
@@ -2592,8 +2658,7 @@ export default function LandingPage() {
               onTitle={(bonusTitle) => patch({ bonusTitle })}
               text={content.bonusText}
               onText={(bonusText) => patch({ bonusText })}
-              books={content.bonusBooks}
-              onBooks={(bonusBooks) => patch({ bonusBooks })}
+
             />
           </SectionAnchor>
 

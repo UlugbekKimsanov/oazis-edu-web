@@ -44,8 +44,8 @@ export default function GiftLinkModal({
   return (
     <Modal open={open} onClose={onClose} title={title} maxWidth="max-w-lg">
       <div className="space-y-4">
-        <p className="flex items-start gap-2 rounded-lg bg-[var(--primary)]/10 px-3 py-2.5 text-xs leading-relaxed text-gray-700">
-          <Gift size={16} className="mt-0.5 shrink-0 text-[var(--primary)]" />
+        <p className="flex items-start gap-2 rounded-lg bg-amber-100 px-3 py-2.5 text-xs leading-relaxed text-gray-700">
+          <Gift size={16} className="mt-0.5 shrink-0 text-amber-600" />
           <span>{description}</span>
         </p>
 

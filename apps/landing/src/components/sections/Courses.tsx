@@ -12,16 +12,16 @@ function ApiCourseCard({
   course,
   text,
   buying,
-  loggedIn,
   onBuy,
-  onFreeInfo,
+  onFree,
+  onOwned,
 }: {
   course: ApiCourse;
   text: LandingContent['courseCard'];
   buying: boolean;
-  loggedIn: boolean;
   onBuy: (product: PurchaseProduct) => void;
-  onFreeInfo: (title: string) => void;
+  onFree: (product: PurchaseProduct) => void;
+  onOwned: (product: PurchaseProduct) => void;
 }) {
   const cover = fileUrl(course.imageUrl || course.backgroundUrl);
   const priceText = course.isPremium
@@ -53,9 +53,9 @@ function ApiCourseCard({
             'aria-label': `${course.name} — ${text.buyLabel}`,
           }
         : {})}
-      className={`flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md focus-visible:border-primary ${canBuy ? 'cursor-pointer' : ''}`}
+      className={`oz-card flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy ? 'cursor-pointer' : ''}`}
     >
-      <div className="relative mb-4">
+      <div className="oz-card-media relative mb-4 overflow-hidden rounded-xl">
         {cover ? (
           <img
             src={cover}
@@ -71,8 +71,8 @@ function ApiCourseCard({
         )}
         {gifts.length > 0 && (
           <span
-            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-1 text-xs font-semibold text-pink-600 shadow"
-            title={`Sovg'a kitob: ${gifts.join(', ')}`}
+            className="gift-gold absolute right-2 top-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold"
+            title={`Sovg'a elektron kitob: ${gifts.join(', ')}`}
           >
             <Gift className="h-3.5 w-3.5" /> Sovg'a
           </span>
@@ -99,17 +99,14 @@ function ApiCourseCard({
           </span>
         )}
       </div>
-      {gifts.length > 0 && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-pink-600">
-          <Gift className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="line-clamp-2">Sovg'a: {gifts.join(', ')}</span>
-        </p>
-      )}
       <div className="mt-auto pt-4">
         <span className="text-lg font-bold text-gray-900">{priceText}</span>
       </div>
       {course.isPremium && course.isEnrolled ? (
-        <PurchasedBadge className="mt-4" />
+        <PurchasedBadge
+          className="mt-4"
+          onClick={() => onOwned({ type: 'course', id: course.id, title: course.name })}
+        />
       ) : course.isPremium ? (
         // Pullik kurs — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
         <Button
@@ -123,15 +120,14 @@ function ApiCourseCard({
         >
           {buying ? 'Yuklanmoqda...' : text.buyLabel}
         </Button>
-      ) : loggedIn ? (
-        // Kirgan foydalanuvchiga ariza formasi ko'rsatilmaydi — ilovada ochilishini aytamiz.
-        <Button className="mt-4 w-full" onClick={() => onFreeInfo(course.name)}>
+      ) : (
+        // Bepul kurs — darslar ilovada o'tiladi: ilovani yuklashga yo'naltiruvchi oyna ochiladi.
+        <Button
+          className="mt-4 w-full"
+          onClick={() => onFree({ type: 'course', id: course.id, title: course.name })}
+        >
           Bepul boshlash
         </Button>
-      ) : (
-        <a href="#royxatdan-otish" className="mt-4">
-          <Button className="w-full">Bepul boshlash</Button>
-        </a>
       )}
     </div>
   );
@@ -146,21 +142,22 @@ export function Courses({
   title,
   cardText,
   courses,
-  loggedIn,
   buyingKey,
   onBuy,
-  onFreeInfo,
+  onFree,
+  onOwned,
 }: {
   title: string;
   cardText: LandingContent['courseCard'];
   /** null — hali yuklanmoqda. */
   courses: ApiCourse[] | null;
-  loggedIn: boolean;
   /** Hozir checkout tokeni so'ralayotgan mahsulot kaliti (`course:5`). */
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
-  /** Kirgan foydalanuvchi bepul kursni bosganda. */
-  onFreeInfo: (title: string) => void;
+  /** Bepul kurs bosilganda ("Bepul boshlash"). */
+  onFree: (product: PurchaseProduct) => void;
+  /** Sotib olingan kurs bosilganda. */
+  onOwned: (product: PurchaseProduct) => void;
 }) {
   return (
     <Section id="courses" title={title} className="bg-white">
@@ -176,9 +173,9 @@ export function Courses({
               course={c}
               text={cardText}
               buying={buyingKey === productKey({ type: 'course', id: c.id })}
-              loggedIn={loggedIn}
               onBuy={onBuy}
-              onFreeInfo={onFreeInfo}
+              onFree={onFree}
+              onOwned={onOwned}
             />
           ))}
         </div>

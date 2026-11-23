@@ -85,6 +85,8 @@ export interface ApiCourse {
   isEnrolled?: boolean;
   /** Kurs sotib olinganda sovg'a qilinadigan kitoblar nomlari. */
   giftBooks?: string[];
+  /** O'sha kitoblarning ID lari (giftBooks bilan bir xil tartibda). */
+  giftBookIds?: number[];
 }
 
 /** Admin panel boshqaradigan jonli kitob katalogi elementi (GET /api/v1/books). */

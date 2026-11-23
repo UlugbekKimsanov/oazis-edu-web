@@ -27,6 +27,8 @@ export interface PurchaseProduct {
   type: ProductType;
   id: number;
   title: string;
+  /** Faqat kitob: bosma kitobmi (yetkazib beriladi, ilovada o'qilmaydi). */
+  print?: boolean;
 }
 
 export function productKey(product: Pick<PurchaseProduct, 'type' | 'id'>): string {
@@ -170,6 +172,16 @@ export async function registerAccount(payload: RegisterPayload): Promise<AuthUse
 export async function loginWithGoogle(idToken: string): Promise<AuthUser> {
   const res = await client.post('/auth/google', { idToken });
   return toAuthUser(res.data);
+}
+
+/**
+ * Kirgan foydalanuvchini bepul kursga yozadi (mobil ilovadagi "Boshlash" bilan bir xil
+ * `POST /api/v1/courses/{id}/enroll`) — kurs ilovada "Mening kurslarim"da tayyor turadi.
+ */
+export async function enrollFreeCourse(authToken: string, courseId: number): Promise<void> {
+  await client.post(`/courses/${courseId}/enroll`, null, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
 }
 
 // ── Xarid ────────────────────────────────────────────────────────────

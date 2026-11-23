@@ -486,7 +486,7 @@ export default function CoursesPage() {
           return {
             id: b.id,
             title: b.title,
-            subtitle: [b.author, b.isFree ? 'Bepul' : formatMoney(b.price)].filter(Boolean).join(' · '),
+            subtitle: ['Elektron kitob', b.author, b.isFree ? 'Bepul' : formatMoney(b.price)].filter(Boolean).join(' · '),
             thumb: cover ? <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover" /> : b.emoji || '📚',
           };
         }),
@@ -1126,7 +1126,8 @@ export default function CoursesPage() {
         title={giftCourse ? `Sovg'a kitoblar — ${giftCourse.name}` : "Sovg'a kitoblar"}
         description={
           <>
-            Belgilangan kitoblar kursni sotib olgan o'quvchining kutubxonasiga <b>bepul</b> qo'shiladi.
+            Belgilangan kitoblar kursni sotib olgan (bepul kursda — kursga yozilgan) o'quvchining
+            kutubxonasiga <b>bepul</b> qo'shiladi.
             Kitob biriktirilganda kursning hozirgi o'quvchilari ham uni oladi. Bog'lanish olib
             tashlansa, avval berilgan kitoblar o'quvchilarda qoladi.
           </>
@@ -1383,20 +1384,13 @@ function SortableCourseRow({
         <button
           type="button"
           onClick={onOpenGifts}
-          disabled={!course.isPremium && giftCount === 0}
           className={
             'inline-flex items-center gap-1 rounded-lg p-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ' +
             (giftCount > 0
-              ? 'bg-pink-50 text-pink-600 hover:bg-pink-100'
-              : 'text-gray-400 hover:bg-pink-50 hover:text-pink-600')
+              ? 'bg-amber-100 text-amber-600 hover:bg-amber-200'
+              : 'text-gray-400 hover:bg-amber-50 hover:text-amber-600')
           }
-          title={
-            !course.isPremium && giftCount === 0
-              ? "Sovg'a kitob faqat pullik kursga biriktiriladi"
-              : giftCount > 0
-                ? `Sovg'a kitoblar: ${giftCount} ta`
-                : "Sovg'a kitob biriktirish"
-          }
+          title={giftCount > 0 ? `Sovg'a kitoblar: ${giftCount} ta` : "Sovg'a kitob biriktirish"}
           aria-label="Sovg'a kitoblar"
         >
           <Gift size={14} />
