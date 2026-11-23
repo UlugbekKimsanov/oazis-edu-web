@@ -15,11 +15,15 @@ function categoryLabel(category?: string): string {
 function BookCard({
   book,
   buying,
+  loggedIn,
   onBuy,
+  onFreeInfo,
 }: {
   book: ApiBook;
   buying: boolean;
+  loggedIn: boolean;
   onBuy: (product: PurchaseProduct) => void;
+  onFreeInfo: (title: string) => void;
 }) {
   const cover = fileUrl(book.coverUrl);
   // Backend bilan bir xil qoida: bepul yoki narxsiz kitob uchun to'lov yo'q.
@@ -78,6 +82,11 @@ function BookCard({
         >
           {buying ? 'Yuklanmoqda...' : 'Xarid qilish'}
         </Button>
+      ) : loggedIn ? (
+        // Kirgan foydalanuvchiga ariza formasi ko'rsatilmaydi — ilovada ochilishini aytamiz.
+        <Button className="mt-3 w-full px-3 sm:px-6" onClick={() => onFreeInfo(book.title)}>
+          Bepul olish
+        </Button>
       ) : (
         <a href="#royxatdan-otish" className="mt-3">
           <Button className="w-full px-3 sm:px-6">Bepul olish</Button>
@@ -95,11 +104,14 @@ export function Books({
   authToken,
   buyingKey,
   onBuy,
+  onFreeInfo,
 }: {
   /** Kirgan foydalanuvchi tokeni — sotib olingan kitoblarni belgilash uchun. */
   authToken: string | null;
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
+  /** Kirgan foydalanuvchi bepul kitobni bosganda. */
+  onFreeInfo: (title: string) => void;
 }) {
   const [books, setBooks] = useState<ApiBook[]>([]);
   const scrolledToHash = useRef(false);
@@ -134,7 +146,9 @@ export function Books({
             key={b.id}
             book={b}
             buying={buyingKey === productKey({ type: 'book', id: b.id })}
+            loggedIn={authToken !== null}
             onBuy={onBuy}
+            onFreeInfo={onFreeInfo}
           />
         ))}
       </div>

@@ -56,9 +56,12 @@ export function Navbar({
               Kirish
             </Button>
           )}
-          <a href="#royxatdan-otish">
-            <Button>{ctaLabel}</Button>
-          </a>
+          {/* Ariza formasi kirgan foydalanuvchiga ko'rsatilmaydi — unga olib boruvchi tugma ham. */}
+          {!user && (
+            <a href="#royxatdan-otish">
+              <Button>{ctaLabel}</Button>
+            </a>
+          )}
         </nav>
 
         <button
@@ -112,9 +115,11 @@ export function Navbar({
                 Kirish
               </Button>
             )}
-            <a href="#royxatdan-otish" onClick={() => setOpen(false)}>
-              <Button className="w-full">{ctaLabel}</Button>
-            </a>
+            {!user && (
+              <a href="#royxatdan-otish" onClick={() => setOpen(false)}>
+                <Button className="w-full">{ctaLabel}</Button>
+              </a>
+            )}
           </Container>
         </div>
       )}

@@ -42,7 +42,7 @@ function App() {
   // Kirishdan keyin davom ettiriladigan xarid.
   const [pendingProduct, setPendingProduct] = useState<PurchaseProduct | null>(null);
   const [buyingKey, setBuyingKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ title: string; text: string } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -80,9 +80,10 @@ function App() {
         setPendingProduct(product);
         setAuthOpen(true);
       } else {
-        setNotice(
-          `«${product.title}»: ${apiErrorMessage(error, "xaridni boshlab bo'lmadi. Qayta urinib ko'ring.")}`,
-        );
+        setNotice({
+          title: 'Xarid davom etmadi',
+          text: `«${product.title}»: ${apiErrorMessage(error, "xaridni boshlab bo'lmadi. Qayta urinib ko'ring.")}`,
+        });
       }
     } finally {
       setBuyingKey(null);
@@ -126,6 +127,15 @@ function App() {
     setUser(null);
   }, []);
 
+  // Kirgan foydalanuvchi bepul mahsulotni bossa: ariza formasi unga ko'rsatilmaydi,
+  // shuning uchun mahsulot qayerda ochilishini aytamiz.
+  const handleFreeInfo = useCallback((title: string) => {
+    setNotice({
+      title: 'Bu bepul',
+      text: `«${title}» bepul — to'lov kerak emas. Uni OAZIS ilovasida shu hisobingiz bilan ochishingiz mumkin.`,
+    });
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       <Navbar
@@ -152,10 +162,17 @@ function App() {
           authToken={user?.token ?? null}
           buyingKey={buyingKey}
           onBuy={handleBuy}
+          onFreeInfo={handleFreeInfo}
         />
         <Bonuses title={content.bonusTitle} text={content.bonusText} books={content.bonusBooks} />
-        <Books authToken={user?.token ?? null} buyingKey={buyingKey} onBuy={handleBuy} />
-        <SignupForm cta={content.cta} formCopy={content.leadForm} />
+        <Books
+          authToken={user?.token ?? null}
+          buyingKey={buyingKey}
+          onBuy={handleBuy}
+          onFreeInfo={handleFreeInfo}
+        />
+        {/* Ariza formasi faqat hali kirmagan mehmon uchun. */}
+        {!user && <SignupForm cta={content.cta} formCopy={content.leadForm} />}
       </main>
       <Footer logo={content.navbar.logo} footer={content.footer} contacts={content.contacts} />
       <LeadModal
@@ -192,9 +209,9 @@ function App() {
         >
           <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl sm:p-8">
             <h2 id="purchase-notice-title" className="text-xl font-bold text-gray-900">
-              Xarid davom etmadi
+              {notice.title}
             </h2>
-            <p className="mt-3 text-sm leading-6 text-gray-600">{notice}</p>
+            <p className="mt-3 text-sm leading-6 text-gray-600">{notice.text}</p>
             <button
               type="button"
               autoFocus

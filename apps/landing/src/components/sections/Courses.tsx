@@ -12,12 +12,16 @@ function ApiCourseCard({
   course,
   text,
   buying,
+  loggedIn,
   onBuy,
+  onFreeInfo,
 }: {
   course: ApiCourse;
   text: LandingContent['courseCard'];
   buying: boolean;
+  loggedIn: boolean;
   onBuy: (product: PurchaseProduct) => void;
+  onFreeInfo: (title: string) => void;
 }) {
   const cover = fileUrl(course.imageUrl || course.backgroundUrl);
   const priceText = course.isPremium
@@ -74,6 +78,11 @@ function ApiCourseCard({
         >
           {buying ? 'Yuklanmoqda...' : text.buyLabel}
         </Button>
+      ) : loggedIn ? (
+        // Kirgan foydalanuvchiga ariza formasi ko'rsatilmaydi — ilovada ochilishini aytamiz.
+        <Button className="mt-4 w-full" onClick={() => onFreeInfo(course.name)}>
+          Bepul boshlash
+        </Button>
       ) : (
         <a href="#royxatdan-otish" className="mt-4">
           <Button className="w-full">Bepul boshlash</Button>
@@ -93,6 +102,7 @@ export function Courses({
   authToken,
   buyingKey,
   onBuy,
+  onFreeInfo,
 }: {
   title: string;
   cardText: LandingContent['courseCard'];
@@ -101,6 +111,8 @@ export function Courses({
   /** Hozir checkout tokeni so'ralayotgan mahsulot kaliti (`course:5`). */
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
+  /** Kirgan foydalanuvchi bepul kursni bosganda. */
+  onFreeInfo: (title: string) => void;
 }) {
   // null — hali yuklanmoqda.
   const [courses, setCourses] = useState<ApiCourse[] | null>(null);
@@ -129,7 +141,9 @@ export function Courses({
               course={c}
               text={cardText}
               buying={buyingKey === productKey({ type: 'course', id: c.id })}
+              loggedIn={authToken !== null}
               onBuy={onBuy}
+              onFreeInfo={onFreeInfo}
             />
           ))}
         </div>
