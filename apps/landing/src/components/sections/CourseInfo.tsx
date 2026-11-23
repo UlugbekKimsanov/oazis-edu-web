@@ -3,6 +3,8 @@ import { Section } from '../ui/Section';
 import { FeatureCard } from '../ui/FeatureCard';
 
 export function CourseInfo({ title, items }: { title: string; items: CourseInfoItem[] }) {
+  // Kontent bo'sh bo'lsa bo'lim ko'rsatilmaydi.
+  if (items.length === 0) return null;
   return (
     <Section title={title} className="bg-primary-light">
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">

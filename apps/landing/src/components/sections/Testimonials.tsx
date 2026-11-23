@@ -24,10 +24,15 @@ function Thumb({ t }: { t: Testimonial }) {
 }
 
 export function Testimonials({ title, testimonials }: { title: string; testimonials: Testimonial[] }) {
+  // Bo'lim video-fikrlar uchun: videosi bor fikrlargina ko'rsatiladi,
+  // birorta ham video bo'lmasa bo'lim umuman chiqmaydi.
+  const withVideo = testimonials.filter((t) => t.videoUrl);
+  if (withVideo.length === 0) return null;
+
   return (
     <Section id="testimonials" title={title} className="bg-primary-light">
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
-        {testimonials.map((t) => (
+        {withVideo.map((t) => (
           <div
             key={t.id}
             className="group flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm"

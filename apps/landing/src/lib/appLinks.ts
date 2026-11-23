@@ -13,6 +13,25 @@ export const APP_STORE_URL =
 
 export type Platform = 'ios' | 'android' | 'other';
 
+/** Provayderdan qaytganda URL'dagi `?paid=course_14` qiymati. */
+export interface PaidReturn {
+  type: 'course' | 'book';
+  id: number;
+}
+
+export function parsePaidParam(raw: string | null): PaidReturn | null {
+  const m = raw?.match(/^(course|book)_(\d+)$/);
+  return m ? { type: m[1] as PaidReturn['type'], id: Number(m[2]) } : null;
+}
+
+/**
+ * Mobil ilovadagi to'lov-yakuni ekranini ochadigan deep link
+ * (Flutter: oazis sxemasi, /paid marshruti).
+ */
+export function appReturnLink(type: PaidReturn['type'], id: number): string {
+  return `oazis://app/paid?type=${type}&id=${id}`;
+}
+
 /** Qurilma platformasi: iPhone/iPad → 'ios', Android → 'android', qolganlari (kompyuter) → 'other'. */
 export function detectPlatform(): Platform {
   if (typeof navigator === 'undefined') return 'other';

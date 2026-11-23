@@ -4,6 +4,8 @@ import { IconGlyph } from '../ui/icon';
 import { fileUrl } from '../../lib/api';
 
 export function Goals({ title, goals }: { title: string; goals: Goal[] }) {
+  // Kontent bo'sh bo'lsa bo'lim ko'rsatilmaydi.
+  if (goals.length === 0) return null;
   return (
     <Section title={title} className="bg-white">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">

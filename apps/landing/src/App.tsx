@@ -7,7 +7,13 @@ import {
   type ApiBook,
   type ApiCourse,
 } from './lib/api';
-import { clearPendingPurchase, loadPendingPurchase, savePendingPurchase } from './lib/appLinks';
+import {
+  appReturnLink,
+  clearPendingPurchase,
+  loadPendingPurchase,
+  parsePaidParam,
+  savePendingPurchase,
+} from './lib/appLinks';
 import { AppDownloadDialog, type AppDownloadInfo } from './components/app/AppDownloadDialog';
 import {
   SessionExpiredError,
@@ -45,6 +51,7 @@ function App() {
     () => new URLSearchParams(window.location.search).get('t'),
   );
 
+
   // Landing'dagi foydalanuvchi sessiyasi (mobil ilova bilan bir xil hisob).
   const [user, setUser] = useState<AuthUser | null>(loadSession);
   const [authOpen, setAuthOpen] = useState(false);
@@ -52,8 +59,22 @@ function App() {
   const [pendingProduct, setPendingProduct] = useState<PurchaseProduct | null>(null);
   const [buyingKey, setBuyingKey] = useState<string | null>(null);
 
-  // "Darslarni ilovada davom ettiring" oynasi (to'lovdan keyin yoki bepul kurs boshlanganda).
-  const [appDialog, setAppDialog] = useState<AppDownloadInfo | null>(null);
+  // "Darslarni ilovada davom ettiring" oynasi. Mobil ilova oqimida provayderdan
+  // ?paid bilan qaytilganda (saytda saqlangan xarid yo'q — xarid ilova tokeni
+  // bilan qilingan) oyna darhol ochiq boshlanadi va telefonda "Ilovaga qaytish"
+  // tugmasini ko'rsatadi; sayt orqali xaridda esa aniq oynani polling ochadi.
+  const [appDialog, setAppDialog] = useState<AppDownloadInfo | null>(() => {
+    const paid = parsePaidParam(new URLSearchParams(window.location.search).get('paid'));
+    if (!paid || loadPendingPurchase()) return null;
+    return {
+      tone: 'success',
+      mode: 'app',
+      hasAccount: true,
+      title: "To'lov qabul qilindi!",
+      text: "Xaridingiz hisobingizga qo'shildi. OAZIS ilovasiga qaytib davom ettirishingiz mumkin.",
+      returnToApp: appReturnLink(paid.type, paid.id),
+    };
+  });
   // To'lov oynasi qaysi mahsulot uchun ochilgani — to'lovga ketishdan oldin eslab qolinadi.
   const checkoutProductRef = useRef<PurchaseProduct | null>(null);
   // Kitoblar bo'limini qayta yuklash (xarid tasdiqlangach "Sotib olingan" chiqishi uchun).
@@ -124,11 +145,14 @@ function App() {
   // u o'qilgan zahoti manzildan olib tashlanadi; overlay state orqali ochiq qoladi.
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.searchParams.has('t')) {
+    if (url.searchParams.has('t') || url.searchParams.has('paid')) {
       url.searchParams.delete('t');
+      url.searchParams.delete('paid');
       window.history.replaceState(null, '', url.toString());
     }
   }, []);
+
+
 
   const closeCheckout = useCallback(() => setCheckoutToken(null), []);
 
@@ -175,6 +199,7 @@ function App() {
                 hasAccount: true,
                 title: "To'lov qabul qilindi!",
                 text: `«${pending.title}» kursi hisobingizda ochildi. Darslarni OAZIS ilovasida davom ettirishingiz mumkin.`,
+                returnToApp: appReturnLink('course', pending.id),
               }
             : printBook
               ? {
@@ -183,12 +208,14 @@ function App() {
                   mode: 'delivery',
                   title: "To'lov qabul qilindi!",
                   text: `«${pending.title}» bosma kitobi uchun buyurtmangiz qabul qilindi. Tez orada operatorlarimiz ushbu kitobni kerakli manzilga yetkazib berish bo'yicha siz bilan aloqaga chiqishadi.`,
+                  returnToApp: appReturnLink('book', pending.id),
                 }
               : {
                   tone: 'success',
                   hasAccount: true,
                   title: "To'lov qabul qilindi!",
                   text: `«${pending.title}» elektron kitobi hisobingizga qo'shildi. Uni OAZIS ilovasidagi kutubxonangizda o'qishingiz mumkin.`,
+                  returnToApp: appReturnLink('book', pending.id),
                 },
         );
         return;

@@ -15,6 +15,12 @@ export interface AppDownloadInfo {
    * 'message' — oddiy xabar (faqat "Tushunarli" tugmasi).
    */
   mode?: 'app' | 'delivery' | 'message';
+  /**
+   * Mobil ilovani ochadigan deep link (oazis://...). Telefonda berilsa, oynada
+   * asosiy tugma "Ilovaga qaytish" bo'ladi — ilova o'rnatilgan foydalanuvchi
+   * do'kon tugmalari o'rniga to'g'ridan-to'g'ri ilovaga qaytadi.
+   */
+  returnToApp?: string;
 }
 
 /** Google Play belgisi (to'rt rangli uchburchak). */
@@ -80,6 +86,8 @@ export function AppDownloadDialog({ info, onClose }: { info: AppDownloadInfo; on
 
   const mode = info.mode ?? 'app';
   const platform = detectPlatform();
+  const mobile = platform !== 'other';
+  const showReturn = Boolean(info.returnToApp) && mobile;
   const showPlay = platform !== 'ios';
   const showAppStore = platform !== 'android';
   const { band } = toneStyles[info.tone];
@@ -128,7 +136,23 @@ export function AppDownloadDialog({ info, onClose }: { info: AppDownloadInfo; on
         <div className="px-6 pb-6 pt-5 sm:px-8 sm:pb-8">
           <p className="text-center text-sm leading-6 text-gray-600">{info.text}</p>
 
-          {mode === 'app' ? (
+          {showReturn ? (
+            <>
+              <a
+                href={info.returnToApp}
+                className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+              >
+                Ilovaga qaytish
+              </a>
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-3 w-full rounded-xl py-2 text-sm font-medium text-gray-500 transition hover:text-gray-800"
+              >
+                Yopish
+              </button>
+            </>
+          ) : mode === 'app' ? (
             <>
               <ol className="mt-5 space-y-3">
                 {steps.map((step, index) => (

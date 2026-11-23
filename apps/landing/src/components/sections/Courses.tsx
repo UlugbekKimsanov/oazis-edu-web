@@ -160,15 +160,14 @@ export function Courses({
   /** Sotib olingan kurs bosilganda. */
   onOwned: (product: PurchaseProduct) => void;
 }) {
+  // Sotuvda kurs bo'lmasa (yoki hali yuklanmagan bo'lsa) bo'lim ko'rsatilmaydi.
+  if (!courses || courses.length === 0) return null;
+
   return (
     <Section id="courses" title={title} className="bg-white">
-      {courses !== null && courses.length === 0 ? (
-        <p className="text-center text-sm text-gray-500">
-          Hozircha sotuvdagi kurslar yo'q. Tez orada yangi kurslar qo'shiladi.
-        </p>
-      ) : (
+      {(
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {(courses ?? []).map((c) => (
+          {courses.map((c) => (
             <ApiCourseCard
               key={c.id}
               course={c}
