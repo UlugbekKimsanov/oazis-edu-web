@@ -133,7 +133,10 @@ function toAuthUser(data: unknown): AuthUser {
 
 /** Emailga 5 xonali kod yuboradi. `isLogin=false` — ro'yxatdan o'tish uchun. */
 export async function sendOtp(email: string, isLogin: boolean): Promise<void> {
-  await client.post('/auth/send-otp', { email, login: isLogin });
+  // SMTP ba'zan (ayniqsa server qayta ishga tushgach birinchi xatda) 20 soniyadan
+  // uzoq javob beradi. Erta uzilsa foydalanuvchi qayta so'raydi va pochtasiga
+  // ikki xil kod keladi — eskisi yaroqsiz bo'lib qoladi. Shuning uchun uzoqroq kutamiz.
+  await client.post('/auth/send-otp', { email, login: isLogin }, { timeout: 60000 });
 }
 
 /** Email + OTP bilan kirish (mobil ilovadagi asosiy usul). */

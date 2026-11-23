@@ -269,7 +269,8 @@ function AuthDialog({
           {view === 'otp' ? (
             <>
               <span className="font-semibold text-gray-700">{normalizedEmail}</span> manziliga{' '}
-              {OTP_LENGTH} xonali tasdiqlash kodi yuborildi.
+              {OTP_LENGTH} xonali tasdiqlash kodi yuborildi. Bir nechta xat kelgan bo'lsa, eng
+              oxirgisidagi kodni kiriting.
             </>
           ) : (
             reason ||
@@ -310,7 +311,13 @@ function AuthDialog({
                 </label>
               )}
               <Button type="submit" disabled={loading}>
-                {loading ? 'Yuklanmoqda...' : usePassword ? 'Kirish' : 'Kod yuborish'}
+                {loading
+                  ? usePassword
+                    ? 'Yuklanmoqda...'
+                    : 'Kod yuborilmoqda...'
+                  : usePassword
+                    ? 'Kirish'
+                    : 'Kod yuborish'}
               </Button>
               <button
                 type="button"
@@ -385,7 +392,7 @@ function AuthDialog({
                 </span>
               </label>
               <Button type="submit" disabled={loading}>
-                {loading ? 'Yuklanmoqda...' : 'Kod yuborish'}
+                {loading ? 'Kod yuborilmoqda...' : 'Kod yuborish'}
               </Button>
             </form>
             {googleBlock}
