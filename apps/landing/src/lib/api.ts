@@ -77,6 +77,10 @@ export interface ApiCourse {
   priceLabel?: string;
   lessonCount?: number;
   hours?: number;
+  /** Saytda sotuvdami (admin paneldan boshqariladi); eski backend'da bo'lmasligi mumkin. */
+  onSale?: boolean;
+  /** Kartada ko'rsatiladigan o'quvchilar soni (admin qo'lda belgilaydi). */
+  students?: number;
 }
 
 /** Admin panel boshqaradigan jonli kitob katalogi elementi (GET /api/v1/books). */
@@ -103,11 +107,15 @@ function unwrapList<T>(data: unknown): T[] {
   return Array.isArray(raw) ? (raw as T[]) : [];
 }
 
-/** Jonli kurslar ro'yxati; xatoda bo'sh massiv (chaqiruvchi fallback ko'rsatadi). */
+/**
+ * Saytda sotuvdagi kurslar ro'yxati (admin panel: «Sotuvga chiqarish»).
+ * Xatoda bo'sh massiv — bo'lim ko'rsatilmaydi.
+ */
 export async function fetchCourses(): Promise<ApiCourse[]> {
   try {
     const res = await client.get('/api/v1/courses');
-    return unwrapList<ApiCourse>(res.data);
+    // `onSale` maydoni yo'q (eski backend) bo'lsa kurs sotuvda deb hisoblanadi.
+    return unwrapList<ApiCourse>(res.data).filter((course) => course.onSale !== false);
   } catch {
     return [];
   }

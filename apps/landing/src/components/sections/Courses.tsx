@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Clock } from 'lucide-react';
-import type { Course, LandingContent } from '../../data/landing';
+import { BookOpen, Clock, Users } from 'lucide-react';
+import type { LandingContent } from '../../data/landing';
 import { Section } from '../ui/Section';
-import { CourseCard } from '../ui/CourseCard';
 import { Button } from '../ui/Button';
 import { fetchCourses, fileUrl, type ApiCourse } from '../../lib/api';
 import { productKey, type PurchaseProduct } from '../../lib/auth';
@@ -43,7 +42,12 @@ function ApiCourseCard({
         {text.categoryLabel}
       </span>
       <h3 className="text-base font-bold text-gray-900">{course.name}</h3>
-      <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+        {Boolean(course.students) && (
+          <span className="inline-flex items-center gap-1">
+            <Users className="h-3.5 w-3.5" /> {course.students} {text.studentsLabel}
+          </span>
+        )}
         {Boolean(course.lessonCount) && (
           <span className="inline-flex items-center gap-1">
             <BookOpen className="h-3.5 w-3.5" /> {course.lessonCount} dars
@@ -76,26 +80,28 @@ function ApiCourseCard({
   );
 }
 
+/**
+ * Saytda sotuvdagi kurslar — tizimdagi haqiqiy kurslar (admin panelda
+ * «Sotuvga chiqarish» bosilganlari). Namunaviy (mock) kartalar ko'rsatilmaydi.
+ */
 export function Courses({
   title,
-  courses,
   cardText,
   buyingKey,
   onBuy,
 }: {
   title: string;
-  courses: Course[];
   cardText: LandingContent['courseCard'];
   /** Hozir checkout tokeni so'ralayotgan mahsulot kaliti (`course:5`). */
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
 }) {
-  // Jonli katalog: admin paneldagi kurslar. Yuklanmasa statik kontent fallback.
-  const [apiCourses, setApiCourses] = useState<ApiCourse[]>([]);
+  // null — hali yuklanmoqda.
+  const [courses, setCourses] = useState<ApiCourse[] | null>(null);
   useEffect(() => {
     let active = true;
     fetchCourses().then((list) => {
-      if (active) setApiCourses(list);
+      if (active) setCourses(list);
     });
     return () => {
       active = false;
@@ -104,19 +110,23 @@ export function Courses({
 
   return (
     <Section id="courses" title={title} className="bg-white">
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {apiCourses.length > 0
-          ? apiCourses.map((c) => (
-              <ApiCourseCard
-                key={c.id}
-                course={c}
-                text={cardText}
-                buying={buyingKey === productKey({ type: 'course', id: c.id })}
-                onBuy={onBuy}
-              />
-            ))
-          : courses.map((c) => <CourseCard key={c.id} course={c} text={cardText} />)}
-      </div>
+      {courses !== null && courses.length === 0 ? (
+        <p className="text-center text-sm text-gray-500">
+          Hozircha sotuvdagi kurslar yo'q. Tez orada yangi kurslar qo'shiladi.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {(courses ?? []).map((c) => (
+            <ApiCourseCard
+              key={c.id}
+              course={c}
+              text={cardText}
+              buying={buyingKey === productKey({ type: 'course', id: c.id })}
+              onBuy={onBuy}
+            />
+          ))}
+        </div>
+      )}
     </Section>
   );
 }

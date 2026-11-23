@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useRememberedSearch } from '../../hooks/useRememberedSearch';
 import {
   Plus, Pencil, Trash2, Users, BookOpen, Filter, GripVertical, Search, X, Lock, ArrowRight,
-  ImageOff, Image as ImageIcon, Loader2, GraduationCap, SearchX,
+  ImageOff, Image as ImageIcon, Loader2, GraduationCap, SearchX, Store,
 } from 'lucide-react';
 import {
   DndContext,
@@ -93,6 +93,7 @@ export default function CoursesPage() {
   const [coverRemoving, setCoverRemoving] = useState(false);
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [saleBusyId, setSaleBusyId] = useState<number | null>(null);
 
   // O'qituvchilarni biriktirish oynasi
   const [teacherCourse, setTeacherCourse] = useState<Course | null>(null);
@@ -424,6 +425,32 @@ export default function CoursesPage() {
     }
   };
 
+  // Kursni saytda (landing) sotuvga chiqarish / sotuvdan olish
+  const toggleSale = async (c: Course) => {
+    if (saleBusyId !== null) return;
+    const next = !c.onSale;
+    if (!next) {
+      const ok = await confirmDialog({
+        title: 'Kurs sotuvdan olinsinmi?',
+        message: `«${c.name}» saytdagi «Kurslar» bo'limidan olib tashlanadi. Kursning o'zi, darslari va o'quvchilari o'zgarmaydi — istalgan payt qayta sotuvga chiqarish mumkin.`,
+        confirmText: 'Sotuvdan olish',
+        danger: true,
+      });
+      if (!ok || !alive.current) return;
+    }
+    setSaleBusyId(c.id);
+    try {
+      await api.patch(`/admin/courses/${c.id}/sale`, { onSale: next });
+      if (!alive.current) return;
+      setCourses((prev) => prev.map((x) => (x.id === c.id ? { ...x, onSale: next } : x)));
+      toast.success(next ? `«${c.name}» sotuvga chiqarildi` : `«${c.name}» sotuvdan olindi`);
+    } catch (err) {
+      if (alive.current) toast.error(apiErrorMessage(err, "Saqlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      if (alive.current) setSaleBusyId(null);
+    }
+  };
+
   // ── Drag-and-drop tartiblash (@dnd-kit, faqat shu til ichida) ──
   // Yangi tartibni order_index ga yozadi: optimistik lokal yangilanish + fonda saqlash.
   const applyReorder = (ordered: Course[]) => {
@@ -713,6 +740,8 @@ export default function CoursesPage() {
                             flagEmoji={c.flagEmoji || g.lang?.flagEmoji}
                             sortable={canReorder}
                             deleting={deletingId === c.id}
+                            saleBusy={saleBusyId === c.id}
+                            onToggleSale={() => void toggleSale(c)}
                             onOpenLessons={() => navigate(`/admin/lessons?courseId=${c.id}`)}
                             onOpenStudents={() => navigate(`/admin/users?courseId=${c.id}&courseName=${encodeURIComponent(c.name)}`)}
                             onOpenTeachers={() => openTeachers(c)}
@@ -1111,6 +1140,8 @@ function SortableCourseRow({
   flagEmoji,
   sortable,
   deleting,
+  saleBusy,
+  onToggleSale,
   onOpenLessons,
   onOpenStudents,
   onOpenTeachers,
@@ -1122,6 +1153,8 @@ function SortableCourseRow({
   flagEmoji?: string;
   sortable: boolean;
   deleting: boolean;
+  saleBusy: boolean;
+  onToggleSale: () => void;
   onOpenLessons: () => void;
   onOpenStudents: () => void;
   onOpenTeachers: () => void;
@@ -1159,6 +1192,21 @@ function SortableCourseRow({
           title="Premium kurs, lekin narx kiritilmagan — tahrirlab narxni kiriting"
         >
           Narx kiritilmagan
+        </span>
+      )}
+      {course.onSale ? (
+        <span
+          className="whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+          title="Kurs saytdagi «Kurslar» bo'limida ko'rinadi"
+        >
+          Sotuvda
+        </span>
+      ) : (
+        <span
+          className="whitespace-nowrap rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500"
+          title="Kurs saytda ko'rinmaydi"
+        >
+          Sotuvda emas
         </span>
       )}
       <button type="button" onClick={onOpenLessons} className={chipBtn} title="Darslarni ko'rish">
@@ -1221,6 +1269,22 @@ function SortableCourseRow({
       </div>
       <div className="hidden items-center gap-2 md:flex">{chips}</div>
       <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+        <button
+          type="button"
+          onClick={onToggleSale}
+          disabled={saleBusy || deleting}
+          className={
+            'inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ' +
+            (course.onSale
+              ? 'text-gray-500 hover:bg-red-50 hover:text-red-600'
+              : 'bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/20')
+          }
+          title={course.onSale ? 'Saytdagi sotuvdan olish' : 'Saytda sotuvga chiqarish'}
+          aria-label={course.onSale ? 'Sotuvdan olish' : 'Sotuvga chiqarish'}
+        >
+          {saleBusy ? <Loader2 size={14} className="animate-spin" /> : <Store size={14} />}
+          <span className="hidden lg:inline">{course.onSale ? 'Sotuvdan olish' : 'Sotuvga chiqarish'}</span>
+        </button>
         <button type="button" onClick={onOpenLessons} className="hidden rounded-lg p-1.5 text-gray-400 hover:bg-green-50 hover:text-green-600 sm:block" title="Darslar" aria-label="Darslar"><BookOpen size={14} /></button>
         <button type="button" onClick={onOpenTeachers} className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="O'qituvchilar" aria-label="O'qituvchilar"><Users size={14} /></button>
         <button type="button" onClick={onEdit} disabled={deleting} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50" title="Tahrirlash" aria-label="Tahrirlash"><Pencil size={14} /></button>

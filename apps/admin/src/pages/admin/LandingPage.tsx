@@ -77,6 +77,8 @@ import PageHeader from '../../components/ui/PageHeader';
 import { ErrorState, LoadingState } from '../../components/ui/States';
 import api, { API_ORIGIN, fileUrl } from '../../lib/api';
 import { apiErrorMessage } from '../../lib/errors';
+import { formatMoney, formatNumber } from '../../lib/format';
+import type { Course as SystemCourse } from '../../lib/types';
 import { confirmDialog, toast, useUiStore } from '../../stores/ui-store';
 import {
   LANDING_ICON_NAMES,
@@ -409,13 +411,9 @@ function validateLandingContent(c: LandingContent): LandingIssue[] {
   text('courses', 'Kategoriya matni', c.courseCard.categoryLabel, 100);
   text('courses', "O'quvchi birligi matni", c.courseCard.studentsLabel, 100);
   text('courses', 'Xarid tugmasi matni', c.courseCard.buyLabel, 100);
-  count('courses', 'Kurslar', c.courses.length, 100);
-  c.courses.forEach((course, index) => {
-    text('courses', `${index + 1}-kurs: bayroq/emoji`, course.flag, 32);
-    text('courses', `${index + 1}-kurs nomi`, course.name, 255);
-    text('courses', `${index + 1}-kurs narxi`, course.price, 100);
-    optionalUrl('courses', `${index + 1}-kurs: xarid havolasi`, course.buyUrl);
-  });
+  // Kurs kartalari endi tizimdagi haqiqiy kurslardan olinadi (sotuvdagi kurslar) —
+  // kontentdagi eski `courses` ro'yxati saytda ko'rsatilmaydi va bu yerda tahrirlanmaydi,
+  // shuning uchun u tekshirilmaydi (tuzatib bo'lmaydigan xato chiqmasligi uchun).
 
   // Bonuslar
   text('bonus', "Bo'lim sarlavhasi", c.bonusTitle, 255);
@@ -1455,151 +1453,341 @@ function TestimonialsEditor({
   );
 }
 
+/** Landing kartasidagi o'quvchilar soni — fokusdan chiqqanda yoki Enter bosilganda saqlanadi. */
+function StudentsInput({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  disabled: boolean;
+  onCommit: (next: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const parsed = Number(draft);
+    const next = draft.trim() === '' || !Number.isFinite(parsed) ? 0 : Math.max(0, Math.trunc(parsed));
+    setDraft(null);
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <input
+      type="number"
+      min={0}
+      step={1}
+      inputMode="numeric"
+      disabled={disabled}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') setDraft(null);
+      }}
+      title="Saytda ko'rsatiladigan o'quvchilar soni (yozib, Enter bosing)"
+      aria-label="O'quvchilar soni"
+      className="w-16 rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-0.5 text-xs text-gray-700 outline-none focus:border-[var(--primary)] disabled:opacity-60"
+    />
+  );
+}
+
+/**
+ * Landing «Kurslar» bo'limi — tizimdagi HAQIQIY kurslar (admin «Kurslar» bo'limi).
+ * Bu yerda kurs yaratilmaydi: mavjud kurs sotuvga chiqariladi yoki sotuvdan olinadi,
+ * saytda ko'rinadigan o'quvchilar soni belgilanadi. Bu amallar darhol saqlanadi
+ * (sahifaning «Saqlash» tugmasiga bog'liq emas); nom, narx, muqova «Kurslar»da tahrirlanadi.
+ */
 function CoursesEditor({
   title,
   onTitle,
-  items,
-  onItems,
   copy,
   onCopy,
 }: {
   title: string;
   onTitle: (v: string) => void;
-  items: LandingContent['courses'];
-  onItems: (c: LandingContent['courses']) => void;
   copy: LandingContent['courseCard'];
   onCopy: (p: Partial<LandingContent['courseCard']>) => void;
 }) {
+  const navigate = useNavigate();
+  const [courses, setCourses] = useState<SystemCourse[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .get('/admin/courses')
+      .then((res) => {
+        if (!active) return;
+        const list: unknown = res.data?.data ?? res.data;
+        setCourses(Array.isArray(list) ? (list as SystemCourse[]) : []);
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        if (active) setLoadError(apiErrorMessage(err, "Kurslar ro'yxatini yuklab bo'lmadi."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  const patchSale = async (
+    course: SystemCourse,
+    body: { onSale?: boolean; landingStudents?: number },
+    okText: string,
+  ) => {
+    if (busyId !== null) return;
+    setBusyId(course.id);
+    try {
+      const res = await api.patch(`/admin/courses/${course.id}/sale`, body);
+      const saved = (res.data?.data ?? {}) as Partial<SystemCourse>;
+      setCourses((prev) =>
+        prev
+          ? prev.map((c) =>
+              c.id === course.id
+                ? {
+                    ...c,
+                    onSale: saved.onSale ?? body.onSale ?? c.onSale,
+                    landingStudents: saved.landingStudents ?? body.landingStudents ?? c.landingStudents,
+                  }
+                : c,
+            )
+          : prev,
+      );
+      toast.success(okText);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Saqlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const takeOffSale = async (course: SystemCourse) => {
+    const ok = await confirmDialog({
+      title: 'Kurs sotuvdan olinsinmi?',
+      message: `«${course.name}» saytdagi «Kurslar» bo'limidan olib tashlanadi. Kursning o'zi, darslari va o'quvchilari o'zgarmaydi — istalgan payt qayta sotuvga chiqarish mumkin.`,
+      confirmText: 'Sotuvdan olish',
+      danger: true,
+    });
+    if (ok) await patchSale(course, { onSale: false }, `«${course.name}» sotuvdan olindi`);
+  };
+
+  const onSale = (courses ?? []).filter((c) => c.onSale);
+  const offSale = (courses ?? []).filter((c) => !c.onSale);
+  const priceText = (c: SystemCourse) =>
+    !c.isPremium ? 'Bepul' : c.priceLabel || (c.price ? formatMoney(c.price) : 'Narx kiritilmagan');
+
   return (
     <PreviewSection id="courses" bg="bg-white" title={title} onTitle={onTitle}>
       <p className="mx-auto mb-6 flex max-w-3xl items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
         <Info size={16} className="mt-0.5 shrink-0" />
         <span>
-          Saytda avval «Kurslar» bo'limidagi jonli katalog ko'rsatiladi. Quyidagi kartalar faqat
-          katalog bo'sh bo'lsa yoki yuklanmasa chiqadi. Kategoriya va tugma matni esa har doim
-          ishlatiladi.
+          Bu yerda tizimdagi haqiqiy kurslar ko'rinadi. Saytga faqat <b>sotuvdagi</b> kurslar chiqadi.
+          Sotuvga chiqarish, sotuvdan olish va o'quvchilar soni <b>darhol saqlanadi</b>. Kurs nomi,
+          narxi, muqovasi va tartibi{' '}
+          <button
+            type="button"
+            className="font-semibold underline"
+            onClick={() => navigate('/admin/courses')}
+          >
+            «Kurslar»
+          </button>{' '}
+          bo'limida o'zgartiriladi.
         </span>
       </p>
-      <SortableList
-        items={items}
-        onChange={onItems}
-        idPrefix="crs"
-        describe={(item) => item.name}
-        containerClassName="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-        footer={
+
+      {loadError ? (
+        <div className="mx-auto max-w-md rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="mt-3 font-semibold underline"
+            onClick={() => {
+              setLoadError(null);
+              setReloadKey((k) => k + 1);
+            }}
+          >
+            Qayta urinish
+          </button>
+        </div>
+      ) : courses === null ? (
+        <p className="py-10 text-center text-sm text-gray-400">Kurslar yuklanmoqda...</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {onSale.map((course) => {
+            const cover = fileUrl(course.coverImage || course.backgroundImage);
+            const busy = busyId === course.id;
+            return (
+              <div
+                key={course.id}
+                className={`flex h-full flex-col rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md ${busy ? 'opacity-60' : ''}`}
+              >
+                {cover ? (
+                  <img
+                    src={cover}
+                    alt={course.name}
+                    loading="lazy"
+                    className="mb-4 h-28 w-full rounded-xl object-cover"
+                  />
+                ) : (
+                  <div className="mb-4 flex h-28 items-center justify-center rounded-xl bg-[var(--primary-light)] text-5xl">
+                    <span>{course.flagEmoji || '🎓'}</span>
+                  </div>
+                )}
+                <span className="mb-2 inline-block w-fit rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
+                  <InlineText
+                    value={copy.categoryLabel}
+                    onChange={(categoryLabel) => onCopy({ categoryLabel })}
+                    title="Barcha kurs kartalari uchun kategoriya matni"
+                    className="w-24 text-xs font-semibold text-[var(--primary)]"
+                  />
+                </span>
+                <h3 className="text-base font-bold text-gray-900">{course.name}</h3>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                  <span className="inline-flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5" />
+                    <StudentsInput
+                      value={course.landingStudents ?? 0}
+                      disabled={busyId !== null}
+                      onCommit={(landingStudents) =>
+                        void patchSale(course, { landingStudents }, "O'quvchilar soni saqlandi")
+                      }
+                    />
+                    <InlineText
+                      value={copy.studentsLabel}
+                      onChange={(studentsLabel) => onCopy({ studentsLabel })}
+                      title="Barcha kurs kartalari uchun o'quvchi birligi"
+                      className="w-16 text-xs"
+                    />
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <BookOpen className="h-3.5 w-3.5" /> {formatNumber(course.lessonCount)} dars
+                  </span>
+                </div>
+                <div className="mt-auto pt-4">
+                  <span className="text-lg font-bold text-gray-900">{priceText(course)}</span>
+                </div>
+                <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white">
+                  {course.isPremium ? (
+                    <InlineText
+                      dark
+                      value={copy.buyLabel}
+                      onChange={(buyLabel) => onCopy({ buyLabel })}
+                      title="Barcha pullik kurs kartalari uchun xarid tugmasi"
+                      className="w-full text-center text-sm font-semibold text-white"
+                    />
+                  ) : (
+                    'Bepul boshlash'
+                  )}
+                </span>
+                <button
+                  type="button"
+                  disabled={busyId !== null}
+                  onClick={() => void takeOffSale(course)}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                >
+                  <X size={14} /> Sotuvdan olish
+                </button>
+              </div>
+            );
+          })}
           <AddCard
-            onClick={() =>
-              onItems([
-                ...items,
-                {
-                  id: uid(),
-                  flag: '🏳️',
-                  name: 'Yangi kurs',
-                  students: 0,
-                  price: "799 000 so'm",
-                  rating: 5.0,
-                },
-              ])
-            }
+            onClick={() => setPickerOpen(true)}
             label="Kurs qo'shish"
             className="min-h-[320px]"
           />
-        }
-        renderItem={({ item, update, remove, handleProps }) => (
-          <div className="group/item relative flex h-full flex-col rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-            <ItemControls handleProps={handleProps} onRemove={remove} />
-            <div className="mb-4 flex h-28 items-center justify-center rounded-xl bg-[var(--primary-light)] text-5xl">
-              <InlineText
-                value={item.flag}
-                onChange={(flag) => update({ flag })}
-                className="w-20 text-center text-5xl"
-              />
+        </div>
+      )}
+
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-gray-950/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="course-picker-title"
+          onMouseDown={(e) => {
+            if (e.currentTarget === e.target) setPickerOpen(false);
+          }}
+        >
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+              <div>
+                <h3 id="course-picker-title" className="text-base font-bold text-gray-900">
+                  Sotuvga chiqariladigan kursni tanlang
+                </h3>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Ro'yxatda tizimda mavjud, lekin hozir sotuvda bo'lmagan kurslar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Yopish"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <span className="mb-2 inline-block w-fit rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-              <InlineText
-                value={copy.categoryLabel}
-                onChange={(categoryLabel) => onCopy({ categoryLabel })}
-                title="Barcha kurs kartalari uchun kategoriya matni"
-                className="w-24 text-xs font-semibold text-[var(--primary)]"
-              />
-            </span>
-            <InlineText
-              value={item.name}
-              onChange={(name) => update({ name })}
-              className="w-full text-base font-bold text-gray-900"
-            />
-            <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
-              <span className="inline-flex items-center gap-1">
-                <Users className="h-3.5 w-3.5" />
-                <InlineText
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={String(item.students)}
-                  onChange={(v) => {
-                    const parsed = Number(v);
-                    update({
-                      students:
-                        v === '' || !Number.isFinite(parsed) ? 0 : Math.max(0, Math.trunc(parsed)),
-                    });
-                  }}
-                  className="w-10 text-xs"
-                />
-                <InlineText
-                  value={copy.studentsLabel}
-                  onChange={(studentsLabel) => onCopy({ studentsLabel })}
-                  title="Barcha kurs kartalari uchun o'quvchi birligi"
-                  className="w-16 text-xs"
-                />
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                <InlineText
-                  type="number"
-                  min="0"
-                  max="5"
-                  step="0.1"
-                  value={String(item.rating)}
-                  onChange={(v) => {
-                    const parsed = Number(v);
-                    update({
-                      rating:
-                        v === '' || !Number.isFinite(parsed)
-                          ? 0
-                          : Math.min(5, Math.max(0, parsed)),
-                    });
-                  }}
-                  className="w-10 text-xs"
-                />
-              </span>
+            <div className="overflow-y-auto p-3">
+              {offSale.length === 0 ? (
+                <div className="px-3 py-8 text-center text-sm text-gray-500">
+                  <p>Tizimdagi barcha kurslar allaqachon sotuvda.</p>
+                  <button
+                    type="button"
+                    className="mt-2 font-semibold text-[var(--primary)] underline"
+                    onClick={() => navigate('/admin/courses')}
+                  >
+                    Yangi kurs yaratish («Kurslar» bo'limi)
+                  </button>
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {offSale.map((course) => {
+                    const cover = fileUrl(course.coverImage || course.backgroundImage);
+                    const noPrice = course.isPremium && !(course.price && course.price > 0);
+                    return (
+                      <li
+                        key={course.id}
+                        className="flex items-center gap-3 rounded-xl border border-gray-200 p-2.5"
+                      >
+                        <div className="flex h-11 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--primary-light)] text-xl">
+                          {cover ? (
+                            <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          ) : (
+                            <span>{course.flagEmoji || '🎓'}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-gray-900" title={course.name}>
+                            {course.name}
+                          </p>
+                          <p className={`text-xs ${noPrice ? 'text-red-600' : 'text-gray-500'}`}>
+                            {priceText(course)} · {formatNumber(course.lessonCount)} dars
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busyId !== null || noPrice}
+                          title={noPrice ? "Avval «Kurslar» bo'limida narxini kiriting" : undefined}
+                          onClick={() =>
+                            void patchSale(course, { onSale: true }, `«${course.name}» sotuvga chiqarildi`)
+                          }
+                          className="shrink-0 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--primary-dark)] disabled:opacity-50"
+                        >
+                          {busyId === course.id ? 'Saqlanmoqda...' : 'Sotuvga chiqarish'}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
-            <div className="mt-4">
-              <InlineText
-                value={item.price}
-                onChange={(price) => update({ price })}
-                className="w-full text-lg font-bold text-gray-900"
-              />
-            </div>
-            <InlineText
-              type="url"
-              value={item.buyUrl ?? ''}
-              onChange={(buyUrl) => update({ buyUrl })}
-              required={false}
-              placeholder="Xarid havolasi (https://...)"
-              className="mt-1 w-full text-[10px] text-gray-400"
-            />
-            <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white">
-              <InlineText
-                dark
-                value={copy.buyLabel}
-                onChange={(buyLabel) => onCopy({ buyLabel })}
-                title="Barcha kurs kartalari uchun xarid tugmasi"
-                className="w-full text-center text-sm font-semibold text-white"
-              />
-            </span>
           </div>
-        )}
-      />
+        </div>
+      )}
     </PreviewSection>
   );
 }
@@ -2393,8 +2581,6 @@ export default function LandingPage() {
             <CoursesEditor
               title={content.coursesTitle}
               onTitle={(coursesTitle) => patch({ coursesTitle })}
-              items={content.courses}
-              onItems={(courses) => patch({ courses })}
               copy={content.courseCard}
               onCopy={(p) => patch({ courseCard: { ...content.courseCard, ...p } })}
             />

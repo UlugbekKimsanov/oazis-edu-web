@@ -146,7 +146,6 @@ function App() {
         <Testimonials title={content.testimonialsTitle} testimonials={content.testimonials} />
         <Courses
           title={content.coursesTitle}
-          courses={content.courses}
           cardText={content.courseCard}
           buyingKey={buyingKey}
           onBuy={handleBuy}

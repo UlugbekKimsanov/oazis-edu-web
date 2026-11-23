@@ -68,6 +68,10 @@ export interface Course {
   orderIndex?: number;
   lessonCount?: number;
   studentCount?: number;
+  /** Saytda (landing) sotuvdami — `PATCH /admin/courses/{id}/sale` bilan o'zgaradi. */
+  onSale?: boolean;
+  /** Landing kartasida ko'rsatiladigan o'quvchilar soni (admin qo'lda belgilaydi). */
+  landingStudents?: number;
 }
 
 export interface Lesson {
