@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, Image as ImageIcon, X, FileText, Upload, ExternalLink } from 'lucide-react';
+import { Plus, Pencil, Trash2, Image as ImageIcon, X, FileText, Upload, ExternalLink, Gift } from 'lucide-react';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
@@ -8,7 +8,9 @@ import api, { fileUrl } from '../../lib/api';
 import { apiErrorMessage } from '../../lib/errors';
 import { formatMoney, formatNumber } from '../../lib/format';
 import { confirmDialog, toast } from '../../stores/ui-store';
-import type { Book, Language } from '../../lib/types';
+import type { Book, Course, Language } from '../../lib/types';
+import { useCourseGifts } from '../../lib/courseGifts';
+import GiftLinkModal, { type GiftLinkItem } from '../../components/GiftLinkModal';
 
 // Admin endpoint `Books` entity'sini qaytaradi (BooksDto emas): muqova `coverImage`da
 // (coverUrl YO'Q), kitob fayli `filePath`da keladi.
@@ -132,6 +134,61 @@ export default function BooksPage() {
   const [filePct, setFilePct] = useState<number | null>(null);
   const [form, setForm] = useState<BookForm>(emptyForm());
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  // Sovg'a sifatida kursga biriktirish (xuddi shu bog'lanish «Kurslar»dan ham boshqariladi)
+  const gifts = useCourseGifts();
+  const [giftBook, setGiftBook] = useState<AdminBook | null>(null);
+  const [giftCourses, setGiftCourses] = useState<Course[]>([]);
+  const [giftCoursesError, setGiftCoursesError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    api.get('/admin/courses')
+      .then((res) => {
+        if (!active) return;
+        const list = unwrap<Course[]>(res);
+        setGiftCourses(Array.isArray(list) ? list : []);
+        setGiftCoursesError(null);
+      })
+      .catch((e: unknown) => {
+        if (active) setGiftCoursesError(apiErrorMessage(e, "Kurslar ro'yxatini yuklab bo'lmadi."));
+      });
+    return () => { active = false; };
+  }, []);
+
+  const giftCourseItems: GiftLinkItem[] = giftCourses.map((c) => ({
+    id: c.id,
+    title: c.name,
+    subtitle: `${c.priceLabel || formatMoney(c.price)} · ${formatNumber(c.studentCount)} o'quvchi`,
+    thumb: c.coverImage
+      ? <img src={fileUrl(c.coverImage)} alt="" loading="lazy" className="h-full w-full object-cover" />
+      : c.flagEmoji || '🎓',
+    disabledReason: c.isPremium ? undefined : "Bepul kurs — sovg'a faqat pullik kursga biriktiriladi",
+  }));
+
+  const toggleGiftCourse = async (item: GiftLinkItem) => {
+    const book = giftBook;
+    if (!book) return;
+    const adding = !gifts.isLinked(item.id, book.id);
+    const students = giftCourses.find((c) => c.id === item.id)?.studentCount ?? 0;
+    // Biriktirish qaytarib bo'lmaydigan ta'sirga ega: mavjud o'quvchilar kitobni darhol oladi
+    if (adding && students > 0) {
+      const ok = await confirmDialog({
+        title: "Sovg'a kitob biriktirilsinmi?",
+        message: `«${book.title}» «${item.title}» kursiga sovg'a sifatida biriktiriladi. Kursning hozirgi ${formatNumber(students)} ta o'quvchisi ham bu kitobni darhol bepul oladi — buni qaytarib bo'lmaydi.`,
+        confirmText: 'Biriktirish',
+      });
+      if (!ok) return;
+    }
+    const result = await gifts.toggle(item.id, book.id);
+    if (!result.ok) return;
+    toast.success(
+      result.linked
+        ? result.granted > 0
+          ? `«${item.title}» kursiga biriktirildi — ${formatNumber(result.granted)} ta o'quvchi kitobni oldi`
+          : `«${item.title}» kursiga sovg'a sifatida biriktirildi`
+        : `«${item.title}» kursidan olib tashlandi`,
+    );
+  };
 
   const requestId = useRef(0);
   // Yaratilgan object URL'lar — sahifadan chiqishda ham bo'shatiladi
@@ -627,15 +684,54 @@ export default function BooksPage() {
             <option value="print">Bosma</option>
           </select>
         }
-        actions={(b) => (
+        actions={(b) => {
+          const giftCount = gifts.links.filter((l) => l.bookId === b.id).length;
+          const isPrint = b.category === 'print';
+          return (
           <>
+            <button type="button" onClick={() => setGiftBook(b)}
+              disabled={isPrint && giftCount === 0}
+              title={
+                isPrint && giftCount === 0
+                  ? "Bosma kitobni sovg'a qilib bo'lmaydi — faqat elektron kitob"
+                  : giftCount > 0
+                    ? `Sovg'a sifatida biriktirilgan kurslar: ${giftCount} ta`
+                    : "Kursga sovg'a sifatida biriktirish"
+              }
+              aria-label={`Kursga sovg'a sifatida biriktirish: ${b.title}`}
+              className={
+                'inline-flex items-center gap-1 p-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed ' +
+                (giftCount > 0 ? 'bg-pink-50 text-pink-600 hover:bg-pink-100' : 'text-gray-400 hover:bg-pink-50 hover:text-pink-600')
+              }>
+              <Gift size={14} />{giftCount > 0 && <span>{giftCount}</span>}
+            </button>
             <button type="button" onClick={() => openEdit(b)} title="Tahrirlash" aria-label={`Tahrirlash: ${b.title}`}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><Pencil size={14} /></button>
             <button type="button" onClick={() => void handleDelete(b)} disabled={deletingId !== null}
               title="O'chirish" aria-label={`O'chirish: ${b.title}`}
               className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 size={14} /></button>
           </>
-        )}
+          );
+        }}
+      />
+
+      <GiftLinkModal
+        open={!!giftBook}
+        onClose={() => setGiftBook(null)}
+        title={giftBook ? `Sovg'a sifatida biriktirish — ${giftBook.title}` : "Sovg'a sifatida biriktirish"}
+        description={
+          <>
+            Belgilangan kurslarni sotib olgan o'quvchi bu kitobni kutubxonasiga <b>bepul</b> oladi.
+            Kurs belgilanganda uning hozirgi o'quvchilari ham kitobni oladi. Belgi olib tashlansa,
+            avval berilgan kitoblar o'quvchilarda qoladi.
+          </>
+        }
+        items={giftCourseItems}
+        isSelected={(courseId) => !!giftBook && gifts.isLinked(courseId, giftBook.id)}
+        isBusy={(courseId) => !!giftBook && gifts.isBusy(courseId, giftBook.id)}
+        onToggle={(item) => void toggleGiftCourse(item)}
+        loadError={gifts.loadError || giftCoursesError}
+        emptyText="Hali kurs yo'q. Avval «Kurslar» bo'limida kurs yarating."
       />
 
       <Modal open={modalOpen} onClose={closeModal} closeDisabled={busy}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { BookOpen, Star } from 'lucide-react';
 import { Section } from '../ui/Section';
 import { Button } from '../ui/Button';
@@ -32,8 +32,30 @@ function BookCard({
     ? 'Bepul'
     : book.priceLabel ||
       (book.price ? `${book.price.toLocaleString('ru-RU')} so'm` : '');
+  // Pullik va hali olinmagan kitobda butun karta xaridni boshlaydi (tugma shart emas).
+  const canBuy = isPaid && !book.isPurchased;
+  const buy = () => {
+    if (!buying) onBuy({ type: 'book', id: book.id, title: book.title });
+  };
   return (
-    <div className="flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md">
+    <div
+      {...(canBuy
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            onClick: buy,
+            onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                buy();
+              }
+            },
+            'aria-label': `${book.title} — Xarid qilish`,
+          }
+        : {})}
+      className={`flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-3 shadow-sm outline-none transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md focus-visible:border-primary ${canBuy ? 'cursor-pointer' : ''}`}
+    >
       {cover ? (
         <img
           src={cover}
@@ -79,7 +101,11 @@ function BookCard({
         <Button
           className="mt-2 w-full px-3 py-2.5!"
           disabled={buying}
-          onClick={() => onBuy({ type: 'book', id: book.id, title: book.title })}
+          onClick={(event) => {
+            // Karta ham bosiladigan — xarid ikki marta boshlanmasligi uchun.
+            event.stopPropagation();
+            buy();
+          }}
         >
           {buying ? 'Yuklanmoqda...' : 'Xarid qilish'}
         </Button>

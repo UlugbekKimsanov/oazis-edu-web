@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useRememberedSearch } from '../../hooks/useRememberedSearch';
 import {
   Plus, Pencil, Trash2, Users, BookOpen, Filter, GripVertical, Search, X, Lock, ArrowRight,
-  ImageOff, Image as ImageIcon, Loader2, GraduationCap, SearchX, Store,
+  ImageOff, Image as ImageIcon, Loader2, GraduationCap, SearchX, Store, Gift,
 } from 'lucide-react';
 import {
   DndContext,
@@ -31,7 +31,9 @@ import api, { fileUrl } from '../../lib/api';
 import { apiErrorMessage } from '../../lib/errors';
 import { formatMoney, formatNumber } from '../../lib/format';
 import { confirmDialog, toast } from '../../stores/ui-store';
-import type { Course, Language, User } from '../../lib/types';
+import type { Book, Course, Language, User } from '../../lib/types';
+import { useCourseGifts } from '../../lib/courseGifts';
+import GiftLinkModal, { type GiftLinkItem } from '../../components/GiftLinkModal';
 
 /** URL'da eslab qolinadigan parametrlar (yon menyudan qaytganda tiklanadi) */
 const COURSES_PARAMS = ['languageId', 'q'] as const;
@@ -103,6 +105,28 @@ export default function CoursesPage() {
   const [busyTeachers, setBusyTeachers] = useState<number[]>([]);
   const [teacherSearch, setTeacherSearch] = useState('');
   const teacherReq = useRef(0);
+
+  // Sovg'a kitoblar: bog'lanishlar (umumiy manba) va tanlash uchun kitoblar ro'yxati
+  const gifts = useCourseGifts();
+  const [giftCourse, setGiftCourse] = useState<Course | null>(null);
+  const [giftBooks, setGiftBooks] = useState<Book[]>([]);
+  const [giftBooksError, setGiftBooksError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    api
+      .get('/admin/books')
+      .then((res) => {
+        if (!active) return;
+        setGiftBooks(unwrapList<Book>(res.data));
+        setGiftBooksError(null);
+      })
+      .catch((err: unknown) => {
+        if (active) setGiftBooksError(apiErrorMessage(err, "Kitoblar ro'yxatini yuklab bo'lmadi."));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const alive = useRef(true);
   const loadReq = useRef(0);
@@ -451,6 +475,49 @@ export default function CoursesPage() {
     }
   };
 
+  // ── Sovg'a kitoblar ──
+  // Ro'yxatda faqat elektron kitoblar: bosma kitob yetkazib berishni talab qiladi.
+  const giftBookItems: GiftLinkItem[] = useMemo(
+    () =>
+      giftBooks
+        .filter((b) => b.category !== 'print')
+        .map((b) => {
+          const cover = fileUrl(b.coverImage || b.coverUrl);
+          return {
+            id: b.id,
+            title: b.title,
+            subtitle: [b.author, b.isFree ? 'Bepul' : formatMoney(b.price)].filter(Boolean).join(' · '),
+            thumb: cover ? <img src={cover} alt="" loading="lazy" className="h-full w-full object-cover" /> : b.emoji || '📚',
+          };
+        }),
+    [giftBooks],
+  );
+
+  const toggleGiftBook = async (item: GiftLinkItem) => {
+    const course = giftCourse;
+    if (!course) return;
+    const adding = !gifts.isLinked(course.id, item.id);
+    const students = course.studentCount ?? 0;
+    // Biriktirish qaytarib bo'lmaydigan ta'sirga ega: mavjud o'quvchilar kitobni darhol oladi
+    if (adding && students > 0) {
+      const ok = await confirmDialog({
+        title: "Sovg'a kitob biriktirilsinmi?",
+        message: `«${item.title}» «${course.name}» kursiga sovg'a sifatida biriktiriladi. Kursning hozirgi ${formatNumber(students)} ta o'quvchisi ham bu kitobni darhol bepul oladi — buni qaytarib bo'lmaydi.`,
+        confirmText: 'Biriktirish',
+      });
+      if (!ok || !alive.current) return;
+    }
+    const result = await gifts.toggle(course.id, item.id);
+    if (!result.ok || !alive.current) return;
+    toast.success(
+      result.linked
+        ? result.granted > 0
+          ? `«${item.title}» biriktirildi — ${formatNumber(result.granted)} ta o'quvchi kitobni oldi`
+          : `«${item.title}» sovg'a sifatida biriktirildi`
+        : `«${item.title}» sovg'alardan olib tashlandi`,
+    );
+  };
+
   // ── Drag-and-drop tartiblash (@dnd-kit, faqat shu til ichida) ──
   // Yangi tartibni order_index ga yozadi: optimistik lokal yangilanish + fonda saqlash.
   const applyReorder = (ordered: Course[]) => {
@@ -742,6 +809,8 @@ export default function CoursesPage() {
                             deleting={deletingId === c.id}
                             saleBusy={saleBusyId === c.id}
                             onToggleSale={() => void toggleSale(c)}
+                            giftCount={gifts.links.filter((l) => l.courseId === c.id).length}
+                            onOpenGifts={() => setGiftCourse(c)}
                             onOpenLessons={() => navigate(`/admin/lessons?courseId=${c.id}`)}
                             onOpenStudents={() => navigate(`/admin/users?courseId=${c.id}&courseName=${encodeURIComponent(c.name)}`)}
                             onOpenTeachers={() => openTeachers(c)}
@@ -1049,6 +1118,26 @@ export default function CoursesPage() {
           </div>
         )}
       </Modal>
+
+      {/* Sovg'a kitoblar — kursga biriktirish (xuddi shu bog'lanish «Kutubxona»dan ham boshqariladi) */}
+      <GiftLinkModal
+        open={!!giftCourse}
+        onClose={() => setGiftCourse(null)}
+        title={giftCourse ? `Sovg'a kitoblar — ${giftCourse.name}` : "Sovg'a kitoblar"}
+        description={
+          <>
+            Belgilangan kitoblar kursni sotib olgan o'quvchining kutubxonasiga <b>bepul</b> qo'shiladi.
+            Kitob biriktirilganda kursning hozirgi o'quvchilari ham uni oladi. Bog'lanish olib
+            tashlansa, avval berilgan kitoblar o'quvchilarda qoladi.
+          </>
+        }
+        items={giftBookItems}
+        isSelected={(bookId) => !!giftCourse && gifts.isLinked(giftCourse.id, bookId)}
+        isBusy={(bookId) => !!giftCourse && gifts.isBusy(giftCourse.id, bookId)}
+        onToggle={(item) => void toggleGiftBook(item)}
+        loadError={gifts.loadError || giftBooksError}
+        emptyText="Kutubxonada elektron kitob yo'q. Avval «Kutubxona» bo'limida kitob qo'shing."
+      />
     </div>
   );
 }
@@ -1142,12 +1231,17 @@ function SortableCourseRow({
   deleting,
   saleBusy,
   onToggleSale,
+  giftCount,
+  onOpenGifts,
   onOpenLessons,
   onOpenStudents,
   onOpenTeachers,
   onEdit,
   onDelete,
 }: {
+  /** Kursga biriktirilgan sovg'a kitoblar soni. */
+  giftCount: number;
+  onOpenGifts: () => void;
   course: Course;
   position: number;
   flagEmoji?: string;
@@ -1286,6 +1380,28 @@ function SortableCourseRow({
           <span className="hidden lg:inline">{course.onSale ? 'Sotuvdan olish' : 'Sotuvga chiqarish'}</span>
         </button>
         <button type="button" onClick={onOpenLessons} className="hidden rounded-lg p-1.5 text-gray-400 hover:bg-green-50 hover:text-green-600 sm:block" title="Darslar" aria-label="Darslar"><BookOpen size={14} /></button>
+        <button
+          type="button"
+          onClick={onOpenGifts}
+          disabled={!course.isPremium && giftCount === 0}
+          className={
+            'inline-flex items-center gap-1 rounded-lg p-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ' +
+            (giftCount > 0
+              ? 'bg-pink-50 text-pink-600 hover:bg-pink-100'
+              : 'text-gray-400 hover:bg-pink-50 hover:text-pink-600')
+          }
+          title={
+            !course.isPremium && giftCount === 0
+              ? "Sovg'a kitob faqat pullik kursga biriktiriladi"
+              : giftCount > 0
+                ? `Sovg'a kitoblar: ${giftCount} ta`
+                : "Sovg'a kitob biriktirish"
+          }
+          aria-label="Sovg'a kitoblar"
+        >
+          <Gift size={14} />
+          {giftCount > 0 && <span>{giftCount}</span>}
+        </button>
         <button type="button" onClick={onOpenTeachers} className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="O'qituvchilar" aria-label="O'qituvchilar"><Users size={14} /></button>
         <button type="button" onClick={onEdit} disabled={deleting} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50" title="Tahrirlash" aria-label="Tahrirlash"><Pencil size={14} /></button>
         <button type="button" onClick={onDelete} disabled={deleting} className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50" title="O'chirish" aria-label="O'chirish">

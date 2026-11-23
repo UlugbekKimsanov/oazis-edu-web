@@ -155,9 +155,9 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
     secondaryBtn: 'Kirish',
   },
   stats: [
-    { value: '1000+', label: "o'quvchilar" },
+    { value: '100+', label: "o'quvchilar" },
     { value: '7', label: 'kurslar' },
-    { value: '280+', label: 'videodarslar' },
+    { value: '200+', label: 'videodarslar' },
   ],
   featuresTitle: 'Nima uchun OAZIS platformasi?',
   features: [

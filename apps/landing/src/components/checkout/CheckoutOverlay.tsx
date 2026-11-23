@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Truck, X } from 'lucide-react';
+import { Gift, Truck, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { fetchCheckout, payCheckout, type CheckoutInfo } from '../../lib/api';
 
@@ -121,6 +121,17 @@ export function CheckoutOverlay({ token, onClose }: { token: string; onClose: ()
               </span>
             </div>
             <p className="mt-3 text-2xl font-bold text-primary">{info.priceLabel}</p>
+            {info.giftBooks && info.giftBooks.length > 0 && (
+              <p className="mt-3 flex items-start gap-2 rounded-xl bg-pink-50 px-3 py-2.5 text-sm text-pink-700">
+                <Gift className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  <span className="font-semibold">Sovg'a kitob:</span> {info.giftBooks.join(', ')}
+                  <span className="block text-xs text-pink-600/80">
+                    To'lovdan keyin ilovadagi kutubxonangizga bepul qo'shiladi.
+                  </span>
+                </span>
+              </p>
+            )}
             {info.deliveryLabel && (
               <p className="mt-2 flex items-center gap-2 text-sm text-gray-500">
                 <Truck className="h-4 w-4 shrink-0 text-primary" />

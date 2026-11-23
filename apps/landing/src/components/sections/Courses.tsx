@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-import { BookOpen, Clock, Users } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
+import { BookOpen, Clock, Gift, Users } from 'lucide-react';
 import type { LandingContent } from '../../data/landing';
 import { Section } from '../ui/Section';
 import { Button } from '../ui/Button';
 import { PurchasedBadge } from '../ui/PurchasedBadge';
-import { fetchCourses, fileUrl, type ApiCourse } from '../../lib/api';
+import { fileUrl, type ApiCourse } from '../../lib/api';
 import { productKey, type PurchaseProduct } from '../../lib/auth';
 
 /** Jonli (admin paneldan boshqariladigan) kurs kartasi. */
@@ -28,21 +28,56 @@ function ApiCourseCard({
     ? course.priceLabel ||
       (course.price ? `${course.price.toLocaleString('ru-RU')} so'm` : '')
     : 'Bepul';
+  const gifts = course.giftBooks ?? [];
+  // Pullik va hali olinmagan kursda butun karta xaridni boshlaydi (tugma shart emas).
+  const canBuy = Boolean(course.isPremium) && !course.isEnrolled;
+  const buy = () => {
+    if (!buying) onBuy({ type: 'course', id: course.id, title: course.name });
+  };
+  const onCardKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      buy();
+    }
+  };
+
   return (
-    <div className="flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md">
-      {cover ? (
-        <img
-          src={cover}
-          alt={course.name}
-          loading="lazy"
-          decoding="async"
-          className="mb-4 h-28 w-full rounded-xl object-cover"
-        />
-      ) : (
-        <div className="mb-4 flex h-28 items-center justify-center rounded-xl bg-primary-light text-5xl">
-          <span>{course.flagEmoji || '🎓'}</span>
-        </div>
-      )}
+    <div
+      {...(canBuy
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            onClick: buy,
+            onKeyDown: onCardKey,
+            'aria-label': `${course.name} — ${text.buyLabel}`,
+          }
+        : {})}
+      className={`flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none transition-[border-color,box-shadow] duration-200 hover:border-primary hover:shadow-md focus-visible:border-primary ${canBuy ? 'cursor-pointer' : ''}`}
+    >
+      <div className="relative mb-4">
+        {cover ? (
+          <img
+            src={cover}
+            alt={course.name}
+            loading="lazy"
+            decoding="async"
+            className="h-28 w-full rounded-xl object-cover"
+          />
+        ) : (
+          <div className="flex h-28 items-center justify-center rounded-xl bg-primary-light text-5xl">
+            <span>{course.flagEmoji || '🎓'}</span>
+          </div>
+        )}
+        {gifts.length > 0 && (
+          <span
+            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-1 text-xs font-semibold text-pink-600 shadow"
+            title={`Sovg'a kitob: ${gifts.join(', ')}`}
+          >
+            <Gift className="h-3.5 w-3.5" /> Sovg'a
+          </span>
+        )}
+      </div>
       <span className="mb-2 inline-block w-fit rounded-full bg-primary-light px-3 py-1 text-xs font-semibold text-primary">
         {text.categoryLabel}
       </span>
@@ -64,6 +99,12 @@ function ApiCourseCard({
           </span>
         )}
       </div>
+      {gifts.length > 0 && (
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-pink-600">
+          <Gift className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="line-clamp-2">Sovg'a: {gifts.join(', ')}</span>
+        </p>
+      )}
       <div className="mt-auto pt-4">
         <span className="text-lg font-bold text-gray-900">{priceText}</span>
       </div>
@@ -74,7 +115,11 @@ function ApiCourseCard({
         <Button
           className="mt-4 w-full"
           disabled={buying}
-          onClick={() => onBuy({ type: 'course', id: course.id, title: course.name })}
+          onClick={(event) => {
+            // Karta ham bosiladigan — xarid ikki marta boshlanmasligi uchun.
+            event.stopPropagation();
+            buy();
+          }}
         >
           {buying ? 'Yuklanmoqda...' : text.buyLabel}
         </Button>
@@ -94,39 +139,29 @@ function ApiCourseCard({
 
 /**
  * Saytda sotuvdagi kurslar — tizimdagi haqiqiy kurslar (admin panelda
- * «Sotuvga chiqarish» bosilganlari). Namunaviy (mock) kartalar ko'rsatilmaydi.
+ * «Sotuvga chiqarish» bosilganlari). Ro'yxatni `App` yuklaydi (bosh sahifadagi
+ * "kurslar" ko'rsatkichi ham shu ro'yxatdan hisoblanadi).
  */
 export function Courses({
   title,
   cardText,
-  authToken,
+  courses,
+  loggedIn,
   buyingKey,
   onBuy,
   onFreeInfo,
 }: {
   title: string;
   cardText: LandingContent['courseCard'];
-  /** Kirgan foydalanuvchi tokeni — sotib olingan kurslarni belgilash uchun. */
-  authToken: string | null;
+  /** null — hali yuklanmoqda. */
+  courses: ApiCourse[] | null;
+  loggedIn: boolean;
   /** Hozir checkout tokeni so'ralayotgan mahsulot kaliti (`course:5`). */
   buyingKey: string | null;
   onBuy: (product: PurchaseProduct) => void;
   /** Kirgan foydalanuvchi bepul kursni bosganda. */
   onFreeInfo: (title: string) => void;
 }) {
-  // null — hali yuklanmoqda.
-  const [courses, setCourses] = useState<ApiCourse[] | null>(null);
-  useEffect(() => {
-    let active = true;
-    // Kirish/chiqishda qayta so'raladi: "Sotib olingan" belgisi foydalanuvchiga bog'liq.
-    fetchCourses(authToken).then((list) => {
-      if (active) setCourses(list);
-    });
-    return () => {
-      active = false;
-    };
-  }, [authToken]);
-
   return (
     <Section id="courses" title={title} className="bg-white">
       {courses !== null && courses.length === 0 ? (
@@ -141,7 +176,7 @@ export function Courses({
               course={c}
               text={cardText}
               buying={buyingKey === productKey({ type: 'course', id: c.id })}
-              loggedIn={authToken !== null}
+              loggedIn={loggedIn}
               onBuy={onBuy}
               onFreeInfo={onFreeInfo}
             />

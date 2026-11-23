@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { landingContent, type LandingContent } from './data/landing';
-import { fetchLandingContent } from './lib/api';
+import { fetchCourses, fetchLandingContent, type ApiCourse } from './lib/api';
 import {
   SessionExpiredError,
   apiErrorMessage,
@@ -53,6 +53,21 @@ function App() {
       active = false;
     };
   }, []);
+
+  // Sotuvdagi kurslar (null — yuklanmoqda). Kirish/chiqishda qayta so'raladi:
+  // "Sotib olingan" belgisi foydalanuvchiga bog'liq. Bosh sahifadagi "kurslar"
+  // ko'rsatkichi ham shu ro'yxat uzunligidan olinadi.
+  const [courses, setCourses] = useState<ApiCourse[] | null>(null);
+  const authToken = user?.token ?? null;
+  useEffect(() => {
+    let active = true;
+    fetchCourses(authToken).then((list) => {
+      if (active) setCourses(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [authToken]);
 
   // Token URL orqali referrer/analytics'ga sizib chiqmasligi uchun
   // u o'qilgan zahoti manzildan olib tashlanadi; overlay state orqali ochiq qoladi.
@@ -148,6 +163,7 @@ function App() {
         <Hero
           hero={content.hero}
           stats={content.stats}
+          coursesOnSale={courses && courses.length > 0 ? courses.length : null}
           loggedIn={user !== null}
           onRequestInfo={() => setLeadModalOpen(true)}
           onLogin={() => setAuthOpen(true)}
@@ -159,14 +175,15 @@ function App() {
         <Courses
           title={content.coursesTitle}
           cardText={content.courseCard}
-          authToken={user?.token ?? null}
+          courses={courses}
+          loggedIn={user !== null}
           buyingKey={buyingKey}
           onBuy={handleBuy}
           onFreeInfo={handleFreeInfo}
         />
         <Bonuses title={content.bonusTitle} text={content.bonusText} books={content.bonusBooks} />
         <Books
-          authToken={user?.token ?? null}
+          authToken={authToken}
           buyingKey={buyingKey}
           onBuy={handleBuy}
           onFreeInfo={handleFreeInfo}

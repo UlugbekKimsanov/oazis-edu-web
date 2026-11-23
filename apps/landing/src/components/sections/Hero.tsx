@@ -5,12 +5,15 @@ import { Button } from '../ui/Button';
 export function Hero({
   hero,
   stats,
+  coursesOnSale,
   loggedIn,
   onRequestInfo,
   onLogin,
 }: {
   hero: LandingContent['hero'];
   stats: Stat[];
+  /** Saytda sotuvdagi kurslar soni; null — hali noma'lum (kontentdagi qiymat ko'rsatiladi). */
+  coursesOnSale: number | null;
   loggedIn: boolean;
   onRequestInfo: () => void;
   /** "Kirish" tugmasi — kirish/ro'yxatdan o'tish oynasini ochadi. */
@@ -46,7 +49,10 @@ export function Hero({
         <div className="mx-auto mt-14 grid max-w-3xl grid-cols-3 gap-4 sm:gap-8">
           {stats.map((s) => (
             <div key={s.label} className="text-center">
-              <div className="text-2xl font-extrabold sm:text-4xl">{s.value}</div>
+              <div className="text-2xl font-extrabold sm:text-4xl">
+                {/* "kurslar" ko'rsatkichi qo'lda yozilmaydi — saytda sotuvdagi kurslar soni. */}
+                {coursesOnSale !== null && /kurs/i.test(s.label) ? coursesOnSale : s.value}
+              </div>
               <div className="mt-1 text-xs text-white/75 sm:text-sm">{s.label}</div>
             </div>
           ))}

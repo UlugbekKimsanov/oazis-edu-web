@@ -83,6 +83,8 @@ export interface ApiCourse {
   students?: number;
   /** Kirgan foydalanuvchi shu kursga yozilganmi (token bilan so'ralganda). */
   isEnrolled?: boolean;
+  /** Kurs sotib olinganda sovg'a qilinadigan kitoblar nomlari. */
+  giftBooks?: string[];
 }
 
 /** Admin panel boshqaradigan jonli kitob katalogi elementi (GET /api/v1/books). */
@@ -166,6 +168,8 @@ export interface CheckoutInfo {
   priceLabel: string;
   amountSum?: number;
   deliveryLabel?: string | null;
+  /** Faqat kurs: xarid bilan sovg'a qilinadigan kitoblar nomlari. */
+  giftBooks?: string[];
   userName?: string;
   methods: CheckoutMethod[];
   expiresAt?: string;
