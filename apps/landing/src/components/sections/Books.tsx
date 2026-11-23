@@ -40,27 +40,30 @@ function BookCard({
     title: book.title,
     print: book.category === 'print',
   };
+  // Sotib olingan kitobda ham butun karta bosiladi — "ilovada o'qing" / "yetkazib beriladi" oynasi.
+  const owned = isPaid && Boolean(book.isPurchased);
   const buy = () => {
     if (!buying) onBuy(product);
   };
+  const activate = canBuy ? buy : () => onOwned(product);
   return (
     <div
-      {...(canBuy
+      {...(canBuy || owned
         ? {
             role: 'button',
             tabIndex: 0,
-            onClick: buy,
+            onClick: activate,
             onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
               if (event.target !== event.currentTarget) return;
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                buy();
+                activate();
               }
             },
-            'aria-label': `${book.title} — Xarid qilish`,
+            'aria-label': `${book.title} — ${canBuy ? 'Xarid qilish' : 'Sotib olingan'}`,
           }
         : {})}
-      className={`oz-card flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy ? 'cursor-pointer' : ''}`}
+      className={`oz-card flex h-full min-w-0 flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy || owned ? 'cursor-pointer' : ''}`}
     >
       {/* Kurs kartasi bilan bir xil uslub: tepada rasm bloki, toifa, nom, meta, narx, tugma.
           Kitob muqovasi tik (3:4) bo'lgani uchun blok ichida to'liq, kesilmasdan ko'rsatiladi. */}
@@ -105,7 +108,7 @@ function BookCard({
       <p className="mt-3 text-lg font-bold text-gray-900">{priceText}</p>
       <div className="mt-auto pt-4">
         {isPaid && book.isPurchased ? (
-          <PurchasedBadge onClick={() => onOwned(product)} />
+          <PurchasedBadge />
         ) : isPaid ? (
           // Pullik kitob — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
           <Button

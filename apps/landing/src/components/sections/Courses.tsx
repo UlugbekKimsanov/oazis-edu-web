@@ -29,31 +29,35 @@ function ApiCourseCard({
       (course.price ? `${course.price.toLocaleString('ru-RU')} so'm` : '')
     : 'Bepul';
   const gifts = course.giftBooks ?? [];
-  // Pullik va hali olinmagan kursda butun karta xaridni boshlaydi (tugma shart emas).
+  const product: PurchaseProduct = { type: 'course', id: course.id, title: course.name };
+  // Pullik va hali olinmagan kursda butun karta xaridni boshlaydi (tugma shart emas);
+  // sotib olingan kursda butun karta "darslar ilovada" oynasini ochadi.
   const canBuy = Boolean(course.isPremium) && !course.isEnrolled;
+  const owned = Boolean(course.isPremium) && Boolean(course.isEnrolled);
   const buy = () => {
-    if (!buying) onBuy({ type: 'course', id: course.id, title: course.name });
+    if (!buying) onBuy(product);
   };
+  const activate = canBuy ? buy : () => onOwned(product);
   const onCardKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      buy();
+      activate();
     }
   };
 
   return (
     <div
-      {...(canBuy
+      {...(canBuy || owned
         ? {
             role: 'button',
             tabIndex: 0,
-            onClick: buy,
+            onClick: activate,
             onKeyDown: onCardKey,
-            'aria-label': `${course.name} — ${text.buyLabel}`,
+            'aria-label': `${course.name} — ${canBuy ? text.buyLabel : 'Sotib olingan'}`,
           }
         : {})}
-      className={`oz-card flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy ? 'cursor-pointer' : ''}`}
+      className={`oz-card flex h-full flex-col rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm outline-none ${canBuy || owned ? 'cursor-pointer' : ''}`}
     >
       <div className="oz-card-media relative mb-4 overflow-hidden rounded-xl">
         {cover ? (
@@ -103,10 +107,7 @@ function ApiCourseCard({
         <span className="text-lg font-bold text-gray-900">{priceText}</span>
       </div>
       {course.isPremium && course.isEnrolled ? (
-        <PurchasedBadge
-          className="mt-4"
-          onClick={() => onOwned({ type: 'course', id: course.id, title: course.name })}
-        />
+        <PurchasedBadge className="mt-4" />
       ) : course.isPremium ? (
         // Pullik kurs — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
         <Button
