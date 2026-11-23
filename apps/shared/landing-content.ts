@@ -200,11 +200,11 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
   courseCard: {
     categoryLabel: 'Til kurslari',
     studentsLabel: "o'quvchi",
-    buyLabel: 'Harid qilish',
+    buyLabel: 'Xarid qilish',
   },
   bonusTitle: 'Bonuslar',
   bonusText:
-    "Harid qilgan Til kursingizning maxsus interaktiv kitoblarini bepul bonus sifatida sovg'a qilamiz!",
+    "Xarid qilgan Til kursingizning maxsus interaktiv kitoblarini bepul bonus sifatida sovg'a qilamiz!",
   bonusBooks: [
     { id: 1, title: 'Ingliz tili kitobi' },
     { id: 2, title: 'Rus tili kitobi' },

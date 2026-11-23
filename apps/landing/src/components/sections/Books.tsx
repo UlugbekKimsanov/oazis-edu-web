@@ -3,6 +3,7 @@ import { BookOpen, Star } from 'lucide-react';
 import { Section } from '../ui/Section';
 import { Button } from '../ui/Button';
 import { fetchBooks, fileUrl, type ApiBook } from '../../lib/api';
+import { productKey, type PurchaseProduct } from '../../lib/auth';
 
 function categoryLabel(category?: string): string {
   if (category === 'print') return 'Bosma';
@@ -10,8 +11,18 @@ function categoryLabel(category?: string): string {
   return 'Kitob';
 }
 
-function BookCard({ book }: { book: ApiBook }) {
+function BookCard({
+  book,
+  buying,
+  onBuy,
+}: {
+  book: ApiBook;
+  buying: boolean;
+  onBuy: (product: PurchaseProduct) => void;
+}) {
   const cover = fileUrl(book.coverUrl);
+  // Backend bilan bir xil qoida: bepul yoki narxsiz kitob uchun to'lov yo'q.
+  const isPaid = !book.isFree && Boolean(book.price && book.price > 0);
   const priceText = book.isFree
     ? 'Bepul'
     : book.priceLabel ||
@@ -46,9 +57,20 @@ function BookCard({ book }: { book: ApiBook }) {
       <div className="mt-auto pt-3">
         <span className="text-base font-bold text-gray-900">{priceText}</span>
       </div>
-      <a href="#royxatdan-otish" className="mt-3">
-        <Button className="w-full">Harid qilish</Button>
-      </a>
+      {isPaid ? (
+        // Pullik kitob — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
+        <Button
+          className="mt-3 w-full"
+          disabled={buying}
+          onClick={() => onBuy({ type: 'book', id: book.id, title: book.title })}
+        >
+          {buying ? 'Yuklanmoqda...' : 'Xarid qilish'}
+        </Button>
+      ) : (
+        <a href="#royxatdan-otish" className="mt-3">
+          <Button className="w-full">Bepul olish</Button>
+        </a>
+      )}
     </div>
   );
 }
@@ -57,7 +79,13 @@ function BookCard({ book }: { book: ApiBook }) {
  * Jonli kitoblar bo'limi — admin paneldagi kitoblar katalogi (GET /api/v1/books).
  * API ishlamasa yoki ro'yxat bo'sh bo'lsa bo'lim ko'rsatilmaydi.
  */
-export function Books() {
+export function Books({
+  buyingKey,
+  onBuy,
+}: {
+  buyingKey: string | null;
+  onBuy: (product: PurchaseProduct) => void;
+}) {
   const [books, setBooks] = useState<ApiBook[]>([]);
 
   useEffect(() => {
@@ -84,7 +112,12 @@ export function Books() {
     <Section id="books" title="Kitoblar" className="bg-white">
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
         {books.map((b) => (
-          <BookCard key={b.id} book={b} />
+          <BookCard
+            key={b.id}
+            book={b}
+            buying={buyingKey === productKey({ type: 'book', id: b.id })}
+            onBuy={onBuy}
+          />
         ))}
       </div>
     </Section>

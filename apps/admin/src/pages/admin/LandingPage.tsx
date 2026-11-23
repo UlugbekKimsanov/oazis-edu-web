@@ -414,7 +414,7 @@ function validateLandingContent(c: LandingContent): LandingIssue[] {
     text('courses', `${index + 1}-kurs: bayroq/emoji`, course.flag, 32);
     text('courses', `${index + 1}-kurs nomi`, course.name, 255);
     text('courses', `${index + 1}-kurs narxi`, course.price, 100);
-    optionalUrl('courses', `${index + 1}-kurs: harid havolasi`, course.buyUrl);
+    optionalUrl('courses', `${index + 1}-kurs: xarid havolasi`, course.buyUrl);
   });
 
   // Bonuslar
@@ -1585,7 +1585,7 @@ function CoursesEditor({
               value={item.buyUrl ?? ''}
               onChange={(buyUrl) => update({ buyUrl })}
               required={false}
-              placeholder="Harid havolasi (https://...)"
+              placeholder="Xarid havolasi (https://...)"
               className="mt-1 w-full text-[10px] text-gray-400"
             />
             <span className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white">

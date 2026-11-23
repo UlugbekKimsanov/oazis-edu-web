@@ -45,6 +45,9 @@ jobs:
         env:
           VITE_API_BASE_URL: https://api.oazisedu.uz
           VITE_API_ORIGIN: https://api.oazisedu.uz
+          # Public Google web client ID (repository variable). Bo'sh bo'lsa
+          # landing'da Google tugmasi ko'rsatilmaydi, email orqali kirish ishlayveradi.
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: npm run build
 
       - name: Package dist

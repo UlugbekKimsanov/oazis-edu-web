@@ -6,7 +6,8 @@ import { fetchCheckout, payCheckout, type CheckoutInfo } from '../../lib/api';
 type Phase = 'loading' | 'ready' | 'error';
 
 /**
- * Mobil ilovadan kelgan `?t=<token>` havolasi uchun to'liq ekran checkout oynasi.
+ * To'liq ekran checkout oynasi — token mobil ilovadan (`?t=<token>`) yoki
+ * landing'dagi "Xarid qilish" tugmasidan (kirgan foydalanuvchi uchun) keladi.
  * Token bo'yicha mahsulot va to'lov usullarini ko'rsatadi, "To'lovga o'tish"
  * bosilganda provayderning checkoutUrl sahifasiga yo'naltiradi.
  */
@@ -98,7 +99,7 @@ export function CheckoutOverlay({ token, onClose }: { token: string; onClose: ()
               Havola yaroqsiz
             </h2>
             <p className="text-sm leading-6 text-gray-500">
-              Havolaning muddati o'tgan. Ilovadan qaytadan "Sotib olish"ni bosing.
+              Havolaning muddati o'tgan. Qaytadan "Xarid qilish"ni bosing.
             </p>
             <Button variant="outline" className="w-full" onClick={onClose}>
               Yopish

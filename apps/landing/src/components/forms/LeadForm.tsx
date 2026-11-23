@@ -2,16 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { submitLead } from '../../lib/api';
 import type { LandingContent } from '../../data/landing';
 import { Button } from '../ui/Button';
+import { formatUzPhone, isCompleteUzPhone } from '../../lib/phone';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
-
-function formatUzPhone(value: string) {
-  const digits = value.replace(/\D/g, '');
-  const local = (digits.startsWith('998') ? digits.slice(3) : digits).slice(0, 9);
-  const parts = [local.slice(0, 2), local.slice(2, 5), local.slice(5, 7), local.slice(7, 9)]
-    .filter(Boolean);
-  return `+998${parts.length ? ` ${parts.join(' ')}` : ' '}`;
-}
 
 export function LeadForm({
   onSuccess,
@@ -37,7 +30,7 @@ export function LeadForm({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!/^\+998 \d{2} \d{3} \d{2} \d{2}$/.test(phone)) {
+    if (!isCompleteUzPhone(phone)) {
       setStatus('error');
       setMessage(copy.invalidPhoneMessage);
       return;

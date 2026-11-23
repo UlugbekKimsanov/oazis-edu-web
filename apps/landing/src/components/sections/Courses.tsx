@@ -5,14 +5,19 @@ import { Section } from '../ui/Section';
 import { CourseCard } from '../ui/CourseCard';
 import { Button } from '../ui/Button';
 import { fetchCourses, fileUrl, type ApiCourse } from '../../lib/api';
+import { productKey, type PurchaseProduct } from '../../lib/auth';
 
 /** Jonli (admin paneldan boshqariladigan) kurs kartasi. */
 function ApiCourseCard({
   course,
   text,
+  buying,
+  onBuy,
 }: {
   course: ApiCourse;
   text: LandingContent['courseCard'];
+  buying: boolean;
+  onBuy: (product: PurchaseProduct) => void;
 }) {
   const cover = fileUrl(course.imageUrl || course.backgroundUrl);
   const priceText = course.isPremium
@@ -53,9 +58,20 @@ function ApiCourseCard({
       <div className="mt-auto pt-4">
         <span className="text-lg font-bold text-gray-900">{priceText}</span>
       </div>
-      <a href="#royxatdan-otish" className="mt-4">
-        <Button className="w-full">{text.buyLabel}</Button>
-      </a>
+      {course.isPremium ? (
+        // Pullik kurs — shu sahifaning o'zida kirish va to'lov oqimi boshlanadi.
+        <Button
+          className="mt-4 w-full"
+          disabled={buying}
+          onClick={() => onBuy({ type: 'course', id: course.id, title: course.name })}
+        >
+          {buying ? 'Yuklanmoqda...' : text.buyLabel}
+        </Button>
+      ) : (
+        <a href="#royxatdan-otish" className="mt-4">
+          <Button className="w-full">Bepul boshlash</Button>
+        </a>
+      )}
     </div>
   );
 }
@@ -64,10 +80,15 @@ export function Courses({
   title,
   courses,
   cardText,
+  buyingKey,
+  onBuy,
 }: {
   title: string;
   courses: Course[];
   cardText: LandingContent['courseCard'];
+  /** Hozir checkout tokeni so'ralayotgan mahsulot kaliti (`course:5`). */
+  buyingKey: string | null;
+  onBuy: (product: PurchaseProduct) => void;
 }) {
   // Jonli katalog: admin paneldagi kurslar. Yuklanmasa statik kontent fallback.
   const [apiCourses, setApiCourses] = useState<ApiCourse[]>([]);
@@ -85,7 +106,15 @@ export function Courses({
     <Section id="courses" title={title} className="bg-white">
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {apiCourses.length > 0
-          ? apiCourses.map((c) => <ApiCourseCard key={c.id} course={c} text={cardText} />)
+          ? apiCourses.map((c) => (
+              <ApiCourseCard
+                key={c.id}
+                course={c}
+                text={cardText}
+                buying={buyingKey === productKey({ type: 'course', id: c.id })}
+                onBuy={onBuy}
+              />
+            ))
           : courses.map((c) => <CourseCard key={c.id} course={c} text={cardText} />)}
       </div>
     </Section>
