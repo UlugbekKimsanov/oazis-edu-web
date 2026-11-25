@@ -118,6 +118,59 @@
     box-shadow: 0 10px 18px -8px rgb(31 122 85 / 0.6);
   }
 }
+
+/*
+ * Ikonkali kartalar to'ri (FeatureGrid) — hover'siz animatsiya.
+ * 1) Bo'lim ekranga kelganda kartalar ketma-ket ko'tarilib chiqadi (.oz-features.is-in).
+ * 2) "Yoritish" kartadan kartaga navbat bilan o'tadi (.is-active): hover bilan bir xil
+ *    ko'rinish, ostida --oz-feature-hold davomida to'lib boradigan chiziq.
+ * Telefonda ham ishlaydi (hover yo'q qurilmalar uchun aynan shu kerak).
+ */
+.oz-features {
+  --oz-feature-hold: 2200ms;
+}
+.oz-feature {
+  opacity: 0;
+  translate: 0 16px;
+  transition:
+    opacity 520ms ease calc(var(--oz-feature-i, 0) * 120ms),
+    translate 520ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--oz-feature-i, 0) * 120ms),
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 320ms ease,
+    background-color 320ms ease;
+}
+.oz-features.is-in .oz-feature {
+  opacity: 1;
+  translate: 0 0;
+}
+.oz-feature.is-active {
+  transform: translateY(-6px);
+  border-color: rgb(46 158 110 / 0.55);
+  background-color: #fbfefc;
+  box-shadow:
+    0 22px 40px -18px rgb(31 122 85 / 0.38),
+    0 8px 16px -8px rgb(31 122 85 / 0.16),
+    0 0 0 4px rgb(46 158 110 / 0.07);
+}
+.oz-feature.is-active .oz-feature-icon {
+  background-color: #2e9e6e;
+  color: #fff;
+  transform: scale(1.12) rotate(-6deg);
+  box-shadow: 0 10px 18px -8px rgb(31 122 85 / 0.6);
+}
+.oz-feature-bar {
+  transform: scaleX(0);
+  opacity: 0;
+}
+.oz-feature.is-active .oz-feature-bar {
+  opacity: 1;
+  animation: oz-feature-bar var(--oz-feature-hold) linear both;
+}
+@keyframes oz-feature-bar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
 @media (prefers-reduced-motion: reduce) {
   .oz-card,
   .oz-card-media img,
@@ -139,5 +192,373 @@
   .oz-card:hover .oz-card-media img,
   .oz-card:focus-visible .oz-card-media img {
     transform: none;
+  }
+}
+
+/*
+ * Hero'dagi interaktiv telefon maketi (PhoneMockup). Holat React'da (savol, javob, ball);
+ * bu yerda faqat qisqa bir martalik effektlar: paydo bo'lish va silkinish.
+ * Maketning o'zi qimirlamaydi (suzish va kursorga egilish yo'q).
+ */
+/* Ball va to'g'ri javob belgisi "sakrab" chiqadi. */
+.oz-ph-pop {
+  animation: oz-ph-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+/* Xato javob yonga silkinadi. */
+.oz-ph-shake {
+  animation: oz-ph-shake 380ms ease both;
+}
+/* Yangi savol pastdan yengil ko'tarilib keladi. */
+.oz-ph-question {
+  animation: oz-ph-question 320ms ease-out both;
+}
+/* "Bosing" taklifidagi barmoq belgisi. */
+.oz-ph-hint {
+  animation: oz-ph-hint 1.6s ease-in-out infinite;
+}
+/* Video ijro chizig'i: to'xtatilganda joyida qoladi. */
+.oz-ph-video {
+  width: 0;
+  animation: oz-ph-video 12s linear infinite paused;
+}
+.oz-ph-video.is-playing {
+  animation-play-state: running;
+}
+
+@keyframes oz-ph-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes oz-ph-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+@keyframes oz-ph-question {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes oz-ph-hint {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes oz-ph-video {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+/*
+ * "Qanday ishlaydi?" qadamlari (HowItWorks): bitta panelda bir qator ikonkalar.
+ * Bo'lim ekranga kelguncha qadamlar xira va biroz pastda turadi; kelganda (.is-in)
+ * ketma-ket ko'tarilib, ikonkasi yashilga to'ladi. Kechikish --oz-step-i dan.
+ */
+.oz-step {
+  opacity: 0.35;
+  transform: translateY(12px);
+  transition:
+    opacity 480ms ease,
+    transform 480ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--oz-step-i, 0) * 220ms);
+}
+.oz-steps.is-in .oz-step {
+  opacity: 1;
+  transform: none;
+}
+/*
+ * Sharcha va ikonka yoritilishi — bitta umumiy soat (--oz-flow-t).
+ * Sharcha davrning dastlabki 90% ida chiziqning boshidan oxirigacha bir tekis yuradi,
+ * qolgan 10% ida ko'rinmaydi (boshiga qaytadi). Demak i-ikonkaga yetish vaqti:
+ *   i / (n - 1) * 0.9 * davr.
+ * Har ikonka shu vaqtda (biroz oldinroq, sharcha chetiga tekkanda) qisqa yonadi.
+ * Ikkala animatsiya .is-in qo'shilganda birga boshlanadi, shuning uchun doim mos yuradi.
+ */
+.oz-steps {
+  --oz-flow-t: 10s;
+  --oz-flow-start: 1.4s;
+}
+.oz-step-badge {
+  background-color: #e8f5ee;
+  color: #2e9e6e;
+}
+.oz-steps.is-in .oz-step-badge {
+  animation: oz-step-lit var(--oz-flow-t) linear infinite;
+  animation-delay: calc(
+    var(--oz-flow-start) + var(--oz-step-i, 0) / (var(--oz-steps, 3) - 1) * 0.9 * var(--oz-flow-t) -
+      250ms
+  );
+}
+/* Yonish: tez to'ladi va biroz kattalashadi, sharcha o'tib ketgach silliq so'nadi. */
+@keyframes oz-step-lit {
+  0% { background-color: #e8f5ee; color: #2e9e6e; transform: scale(1); }
+  2.5%, 9% { background-color: #2e9e6e; color: #fff; transform: scale(1.12); }
+  15%, 100% { background-color: #e8f5ee; color: #2e9e6e; transform: scale(1); }
+}
+
+/* Keng ekranda barcha qadamlar bir qatorda: ustunlar soni --oz-steps dan. */
+@media (min-width: 1024px) {
+  .oz-steps-grid {
+    grid-template-columns: repeat(var(--oz-steps, 3), minmax(0, 1fr));
+  }
+}
+
+/*
+ * Ikonkalarni bog'lovchi chiziq va uning bo'ylab oqadigan nuqtalar.
+ * Chiziq birinchi ustun markazidan oxirgi ustun markazigacha: har uchidan yarim ustun
+ * ichkarida. Ustun kengligi = (100% - (n-1) * oraliq) / n, oraliq 1rem (gap-x-4).
+ * Ikonkalarning oq halqasi (ring) chiziqni ular atrofida uzib turadi.
+ */
+.oz-flow-track {
+  --oz-half-col: calc((100% - (var(--oz-steps, 3) - 1) * 1rem) / (var(--oz-steps, 3) * 2));
+  left: var(--oz-half-col);
+  right: var(--oz-half-col);
+  background-color: rgb(46 158 110 / 0.3);
+}
+/* Sharcha: chiziq bo'ylab bir tekis yuradi; ikonka ostidan o'tayotganda uni ikonka yopadi. */
+.oz-flow-ball {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 9999px;
+  background-color: #2e9e6e;
+  box-shadow: 0 0 0 4px rgb(46 158 110 / 0.22);
+  opacity: 0;
+}
+.oz-steps.is-in .oz-flow-ball {
+  animation: oz-flow-ball var(--oz-flow-t) linear var(--oz-flow-start) infinite;
+}
+@keyframes oz-flow-ball {
+  0% { left: 0; opacity: 1; }
+  90% { left: 100%; opacity: 1; }
+  90.01%, 100% { left: 100%; opacity: 0; }
+}
+
+/*
+ * "Bizning maqsadimiz" kartalari (Goals). Kartalar bo'lim ekranga kelganda ketma-ket
+ * ko'tariladi; tepadagi sahnalar (pufakchalar, halqa, orbit, to'lqin) sekin takrorlanadi.
+ * Asosiy (animatsiyasiz) holat — to'liq ko'rinadigan yakuniy ko'rinish.
+ */
+.oz-goal {
+  opacity: 0;
+  translate: 0 18px;
+  transition:
+    opacity 560ms ease calc(var(--oz-goal-card-i, 0) * 160ms),
+    translate 560ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--oz-goal-card-i, 0) * 160ms),
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms ease,
+    background-color 220ms ease;
+}
+.oz-goals.is-in .oz-goal {
+  opacity: 1;
+  translate: 0 0;
+}
+
+/* Suhbat pufakchalari: navbat bilan chiqadi, biroz turadi, birga yo'qoladi. */
+.oz-goal-bubble {
+  animation: oz-goal-bubble 7s ease infinite;
+  animation-delay: calc(var(--oz-goal-i, 0) * 900ms);
+}
+@keyframes oz-goal-bubble {
+  0% { opacity: 0; transform: translateY(8px) scale(0.92); }
+  8%, 70% { opacity: 1; transform: translateY(0) scale(1); }
+  80%, 100% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+
+/*
+ * Taymer: halqa to'ladi, uning to'lgan uchida tugmacha yuradi. Ikkalasi bir xil
+ * (linear, bir xil davomiylik) — tugmacha doim halqaning to'lgan chetida turadi.
+ * Tugmacha SVG markazi (viewBox'dagi 50,50) atrofida aylanadi.
+ */
+.oz-goal-ring {
+  animation: oz-goal-ring 6s linear infinite;
+}
+.oz-goal-knob {
+  transform-box: view-box;
+  transform-origin: 50px 50px;
+  animation: oz-goal-knob 6s linear infinite;
+}
+@keyframes oz-goal-ring {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes oz-goal-knob {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Orbit: nuqtalar sekin aylanadi, markaz yengil "nafas oladi". */
+.oz-goal-orbit {
+  animation: oz-goal-orbit 14s linear infinite;
+}
+.oz-goal-breathe {
+  animation: oz-goal-breathe 4s ease-in-out infinite;
+}
+@keyframes oz-goal-orbit {
+  to { transform: rotate(360deg); }
+}
+@keyframes oz-goal-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+
+/* Umumiy sahna: kengayib yo'qoladigan to'lqin. */
+.oz-goal-pulse {
+  animation: oz-goal-pulse 2.8s ease-out infinite;
+}
+.oz-goal-pulse-2 {
+  animation-delay: 1.4s;
+}
+@keyframes oz-goal-pulse {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+/* Kursor ustida sahna tezlashadi (faqat kursorli qurilmalarda). */
+@media (hover: hover) and (pointer: fine) {
+  .oz-goal:hover .oz-goal-orbit {
+    animation-duration: 5s;
+  }
+  .oz-goal:hover .oz-goal-ring,
+  .oz-goal:hover .oz-goal-knob {
+    animation-duration: 2.4s;
+  }
+  .oz-goal:hover .oz-goal-pulse {
+    animation-duration: 1.4s;
+  }
+}
+
+/*
+ * E'tibor tortuvchi sakrash (Button attention): tugma tasodifiy vaqtlarda bir marta sakraydi.
+ * "Squash & stretch": sakrashdan oldin siqiladi, havoda cho'ziladi, qo'nganda yana siqilib,
+ * kichik ikkinchi sakrash bilan tinchiydi — jonli, lekin qisqa (0.9 s). Qo'ngan paytda
+ * tugma atrofida bir marta halqa tarqaladi. Halqa rangi --oz-attn-ring dan (yashil fonda oq).
+ */
+.oz-attn-run {
+  animation: oz-attn-hop 900ms cubic-bezier(0.28, 0.84, 0.42, 1) both;
+}
+@keyframes oz-attn-hop {
+  0% {
+    transform: translateY(0) scale(1, 1);
+    box-shadow: 0 0 0 0 var(--oz-attn-ring, rgb(46 158 110 / 0.45));
+  }
+  12% { transform: translateY(0) scale(1.07, 0.9); }
+  34% { transform: translateY(-11px) scale(0.96, 1.06); }
+  52% {
+    transform: translateY(0) scale(1.06, 0.93);
+    box-shadow: 0 0 0 0 var(--oz-attn-ring, rgb(46 158 110 / 0.45));
+  }
+  68% { transform: translateY(-4px) scale(0.99, 1.02); }
+  82% { transform: translateY(0) scale(1.02, 0.98); }
+  100% {
+    transform: translateY(0) scale(1, 1);
+    box-shadow: 0 0 0 12px rgb(46 158 110 / 0);
+  }
+}
+
+/*
+ * Asosiy chaqiriq tugmalarining hover holati (Button attention -> .oz-btn-live).
+ * Sodda va aniq: rang almashadi (Button variantlarida), tugma 2px ko'tariladi va ostida
+ * soya chuqurlashadi; bosilganda joyiga qaytadi. Kattalashish, halqa va yaltirash yo'q.
+ */
+.oz-btn-live {
+  transition:
+    transform 180ms ease-out,
+    box-shadow 180ms ease-out,
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .oz-btn-live:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px -10px rgb(15 60 40 / 0.55);
+  }
+}
+.oz-btn-live:active {
+  transform: translateY(0);
+  box-shadow: none;
+  transition-duration: 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oz-ph-pop,
+  .oz-ph-shake,
+  .oz-ph-question,
+  .oz-ph-hint,
+  .oz-ph-video {
+    animation: none;
+  }
+
+  .oz-ph-video.is-playing {
+    width: 40%;
+  }
+
+  .oz-attn-run {
+    animation: none;
+  }
+
+  .oz-btn-live {
+    transition: none;
+  }
+
+  .oz-btn-live:hover,
+  .oz-btn-live:active {
+    transform: none;
+  }
+
+  .oz-feature,
+  .oz-features.is-in .oz-feature {
+    opacity: 1;
+    translate: 0 0;
+    transition: none;
+  }
+
+  .oz-goal,
+  .oz-goals.is-in .oz-goal {
+    opacity: 1;
+    translate: 0 0;
+    transition: none;
+  }
+
+  .oz-goal-bubble,
+  .oz-goal-ring,
+  .oz-goal-knob,
+  .oz-goal-orbit,
+  .oz-goal-breathe,
+  .oz-goal-pulse {
+    animation: none;
+  }
+
+  .oz-goal-pulse {
+    opacity: 0;
+  }
+
+  /* Harakatsiz holatda halqa uchdan ikki qismi to'lgan holda turadi. */
+  .oz-goal-ring {
+    stroke-dashoffset: 33;
+  }
+
+  .oz-goal-knob {
+    transform: rotate(241deg);
+  }
+
+  .oz-step {
+    transition: none;
+  }
+
+  /* Harakat kamaytirilganda sharcha yo'q; barcha ikonkalar bir xil yashil turadi. */
+  .oz-steps.is-in .oz-step-badge,
+  .oz-steps.is-in .oz-flow-ball {
+    animation: none;
+  }
+
+  .oz-step-badge {
+    background-color: #2e9e6e;
+    color: #fff;
   }
 }

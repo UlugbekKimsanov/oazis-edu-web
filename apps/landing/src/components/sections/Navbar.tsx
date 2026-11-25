@@ -52,14 +52,14 @@ export function Navbar({
               </button>
             </div>
           ) : (
-            <Button variant="outline" className="px-5 py-2.5" onClick={onLogin}>
+            <Button variant="outline" className="px-5 py-2.5" onClick={onLogin} attention>
               Kirish
             </Button>
           )}
           {/* Ariza formasi kirgan foydalanuvchiga ko'rsatilmaydi — unga olib boruvchi tugma ham. */}
           {!user && (
             <a href="#royxatdan-otish">
-              <Button>{ctaLabel}</Button>
+              <Button attention>{ctaLabel}</Button>
             </a>
           )}
         </nav>

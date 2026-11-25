@@ -1,17 +1,13 @@
 import type { Feature } from '../../data/landing';
 import { Section } from '../ui/Section';
-import { FeatureCard } from '../ui/FeatureCard';
+import { FeatureGrid } from '../ui/FeatureGrid';
 
 export function Features({ title, features }: { title: string; features: Feature[] }) {
   // Kontent bo'sh bo'lsa bo'lim ko'rsatilmaydi.
   if (features.length === 0) return null;
   return (
     <Section id="about" title={title} className="bg-white">
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {features.map((f, i) => (
-          <FeatureCard key={i} icon={f.icon} text={f.text} />
-        ))}
-      </div>
+      <FeatureGrid items={features} />
     </Section>
   );
 }

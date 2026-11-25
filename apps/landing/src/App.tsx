@@ -32,6 +32,7 @@ import { CheckoutOverlay } from './components/checkout/CheckoutOverlay';
 import { Navbar } from './components/sections/Navbar';
 import { Hero } from './components/sections/Hero';
 import { Features } from './components/sections/Features';
+import { HowItWorks } from './components/sections/HowItWorks';
 import { CourseInfo } from './components/sections/CourseInfo';
 import { Goals } from './components/sections/Goals';
 import { Testimonials } from './components/sections/Testimonials';
@@ -355,6 +356,17 @@ function App() {
           onLogin={() => setAuthOpen(true)}
         />
         <Features title={content.featuresTitle} features={content.features} />
+        <HowItWorks
+          onDownload={() =>
+            setAppDialog({
+              tone: 'info',
+              hasAccount: user !== null,
+              mode: 'app',
+              title: 'OAZIS ilovasi',
+              text: "Darslar, mashqlar va testlar OAZIS mobil ilovasida o'tiladi. Ilovani yuklab oling va o'qishni boshlang.",
+            })
+          }
+        />
         <CourseInfo title={content.courseInfoTitle} items={content.courseInfo} />
         <Goals title={content.goalsTitle} goals={content.goals} />
         <Testimonials title={content.testimonialsTitle} testimonials={content.testimonials} />

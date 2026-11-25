@@ -1,17 +1,13 @@
 import type { CourseInfoItem } from '../../data/landing';
 import { Section } from '../ui/Section';
-import { FeatureCard } from '../ui/FeatureCard';
+import { FeatureGrid } from '../ui/FeatureGrid';
 
 export function CourseInfo({ title, items }: { title: string; items: CourseInfoItem[] }) {
   // Kontent bo'sh bo'lsa bo'lim ko'rsatilmaydi.
   if (items.length === 0) return null;
   return (
     <Section title={title} className="bg-primary-light">
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {items.map((f, i) => (
-          <FeatureCard key={i} icon={f.icon} text={f.text} />
-        ))}
-      </div>
+      <FeatureGrid items={items} />
     </Section>
   );
 }
