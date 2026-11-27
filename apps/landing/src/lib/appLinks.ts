@@ -11,6 +11,14 @@ export const PLAY_STORE_URL =
 export const APP_STORE_URL =
   (import.meta.env.VITE_APP_STORE_URL as string | undefined)?.trim() || '';
 
+/**
+ * QR kod manzili: /app sahifasi qurilmani aniqlab Android → Google Play,
+ * iPhone → App Store ga yo'naltiradi (public/app/index.html). Do'kon havolalari
+ * o'zgarsa o'sha fayldagi konstantalarni ham yangilang.
+ */
+export const APP_QR_URL =
+  typeof window !== 'undefined' ? `${window.location.origin}/app/` : 'https://oazisedu.uz/app/';
+
 export type Platform = 'ios' | 'android' | 'other';
 
 /** Provayderdan qaytganda URL'dagi `?paid=course_14` qiymati. */

@@ -9,11 +9,14 @@ export function Navbar({
   navbar,
   user,
   onLogin,
+  onRegister,
   onLogout,
 }: {
   navbar: LandingContent['navbar'];
   user: AuthUser | null;
   onLogin: () => void;
+  /** "Ro'yxatdan o'tish" tugmasi — ro'yxatdan o'tish oynasini ochadi. */
+  onRegister: () => void;
   onLogout: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -56,11 +59,11 @@ export function Navbar({
               Kirish
             </Button>
           )}
-          {/* Ariza formasi kirgan foydalanuvchiga ko'rsatilmaydi — unga olib boruvchi tugma ham. */}
+          {/* Kirgan foydalanuvchiga ro'yxatdan o'tish tugmasi kerak emas. */}
           {!user && (
-            <a href="#royxatdan-otish">
-              <Button attention>{ctaLabel}</Button>
-            </a>
+            <Button attention onClick={onRegister}>
+              {ctaLabel}
+            </Button>
           )}
         </nav>
 
@@ -116,9 +119,15 @@ export function Navbar({
               </Button>
             )}
             {!user && (
-              <a href="#royxatdan-otish" onClick={() => setOpen(false)}>
-                <Button className="w-full">{ctaLabel}</Button>
-              </a>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setOpen(false);
+                  onRegister();
+                }}
+              >
+                {ctaLabel}
+              </Button>
             )}
           </Container>
         </div>

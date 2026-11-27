@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Smartphone, Truck, X } from 'lucide-react';
 import { APP_STORE_URL, PLAY_STORE_URL, detectPlatform } from '../../lib/appLinks';
+import { AppleIcon, GooglePlayIcon, StoreBadgeLabel, storeBadge } from './StoreBadges';
 
 export interface AppDownloadInfo {
   /** 'success' — yakunlangan amal, 'info' — tushuntirish, 'warning' — amal bajarilmadi. */
@@ -21,39 +22,6 @@ export interface AppDownloadInfo {
    * do'kon tugmalari o'rniga to'g'ridan-to'g'ri ilovaga qaytadi.
    */
   returnToApp?: string;
-}
-
-/** Google Play belgisi (to'rt rangli uchburchak). */
-function GooglePlayIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
-      <path fill="#00C3FF" d="M3.2 1.6v20.8L13.4 12 3.2 1.6z" />
-      <path fill="#00F076" d="M3.2 1.6 13.4 12l3.3-3.4L4.5 1.5c-.5-.3-1-.2-1.3.1z" />
-      <path fill="#FFD500" d="M16.7 8.6 13.4 12l3.3 3.4 4.2-2.4c.9-.5.9-1.5 0-2l-4.2-2.4z" />
-      <path fill="#FF3A44" d="M3.2 22.4c.3.3.8.4 1.3.1l12.2-7.1-3.3-3.4L3.2 22.4z" />
-    </svg>
-  );
-}
-
-/** Apple belgisi. */
-function AppleIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
-    </svg>
-  );
-}
-
-const storeBadge =
-  'group flex w-full items-center gap-3 rounded-2xl bg-gray-900 px-4 py-2.5 text-left text-white shadow-sm transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2';
-
-function StoreBadgeLabel({ caption, name }: { caption: string; name: string }) {
-  return (
-    <span className="flex min-w-0 flex-col leading-tight">
-      <span className="text-[11px] font-medium text-white/70">{caption}</span>
-      <span className="truncate text-base font-semibold">{name}</span>
-    </span>
-  );
 }
 
 const toneStyles = {

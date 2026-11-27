@@ -3,6 +3,7 @@ import { Container } from "../ui/Container";
 import { Button } from "../ui/Button";
 import { CountUp } from "../ui/CountUp";
 import { PhoneMockup } from "../ui/PhoneMockup";
+import { AppDownloadCard } from "../app/StoreBadges";
 
 export function Hero({
   hero,
@@ -28,7 +29,7 @@ export function Hero({
     >
       <Container className="py-16 sm:py-20 lg:py-24">
         {/* Keng ekranda: chapda matn, o'ngda jonli ilova maketi; telefonda maket matn ostida. */}
-        <div className="grid items-center gap-12 lg:grid-cols-[1.15fr_0.85fr] lg:gap-10">
+        <div className="grid items-center gap-12 lg:grid-cols-[1fr_1fr] lg:gap-10">
           <div className="mx-auto max-w-3xl text-center lg:mx-0 lg:text-left">
             <h1 className="text-3xl font-extrabold leading-tight sm:text-4xl md:text-5xl">
               {hero.title}
@@ -70,7 +71,11 @@ export function Hero({
             </div>
           </div>
 
-          <PhoneMockup />
+          {/* Telefon maketi + yonida QR va do'kon tugmalari (telefonda maket ostida). */}
+          <div className="flex flex-col items-center justify-center gap-8 sm:flex-row sm:items-center">
+            <PhoneMockup />
+            <AppDownloadCard />
+          </div>
         </div>
       </Container>
     </section>

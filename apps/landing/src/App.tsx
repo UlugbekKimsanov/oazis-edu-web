@@ -26,6 +26,7 @@ import {
   saveSession,
   type AuthUser,
   type PurchaseProduct,
+  exchangeCheckoutSession,
 } from './lib/auth';
 import { AuthModal } from './components/auth/AuthModal';
 import { CheckoutOverlay } from './components/checkout/CheckoutOverlay';
@@ -56,6 +57,8 @@ function App() {
   // Landing'dagi foydalanuvchi sessiyasi (mobil ilova bilan bir xil hisob).
   const [user, setUser] = useState<AuthUser | null>(loadSession);
   const [authOpen, setAuthOpen] = useState(false);
+  /** Auth oynasi qaysi ko'rinishda ochilsin: kirish yoki ro'yxatdan o'tish. */
+  const [authView, setAuthView] = useState<'login' | 'register'>('login');
   // Kirishdan keyin davom ettiriladigan xarid.
   const [pendingProduct, setPendingProduct] = useState<PurchaseProduct | null>(null);
   const [buyingKey, setBuyingKey] = useState<string | null>(null);
@@ -154,6 +157,26 @@ function App() {
   }, []);
 
 
+
+  // Mobil ilovadan ?t= bilan kelganda foydalanuvchini saytga ham avtomatik kiritamiz
+  // (header'da ismi chiqadi, xaridlari ko'rinadi). Bu faqat URL'dagi boshlang'ich token
+  // uchun — saytning o'zida yaratilgan checkout tokenlari uchun emas. Xato bo'lsa
+  // (token ishlatilgan/muddati o'tgan) jim o'tamiz: to'lov oynasi baribir ishlaydi.
+  const initialCheckoutToken = useRef(checkoutToken);
+  useEffect(() => {
+    const token = initialCheckoutToken.current;
+    if (!token) return;
+    // Token bir martalik: StrictMode'dagi ikkinchi effekt chaqiruvi uni qayta sarflamasin.
+    initialCheckoutToken.current = null;
+    exchangeCheckoutSession(token)
+      .then((sessionUser) => {
+        saveSession(sessionUser);
+        setUser(sessionUser);
+      })
+      .catch(() => {
+        // Sessiya ochilmadi — foydalanuvchi kerak bo'lsa o'zi kiradi.
+      });
+  }, []);
 
   const closeCheckout = useCallback(() => setCheckoutToken(null), []);
 
@@ -279,6 +302,7 @@ function App() {
       saveSession(nextUser);
       setUser(nextUser);
       setAuthOpen(false);
+      setAuthView('login');
       if (pendingProduct) {
         const product = pendingProduct;
         setPendingProduct(null);
@@ -290,6 +314,7 @@ function App() {
 
   const closeAuth = useCallback(() => {
     setAuthOpen(false);
+    setAuthView('login');
     setPendingProduct(null);
   }, []);
 
@@ -343,7 +368,14 @@ function App() {
       <Navbar
         navbar={content.navbar}
         user={user}
-        onLogin={() => setAuthOpen(true)}
+        onLogin={() => {
+          setAuthView('login');
+          setAuthOpen(true);
+        }}
+        onRegister={() => {
+          setAuthView('register');
+          setAuthOpen(true);
+        }}
         onLogout={handleLogout}
       />
       <main>
@@ -400,6 +432,7 @@ function App() {
       />
       <AuthModal
         open={authOpen}
+        initialView={authView}
         reason={
           pendingProduct
             ? `«${pendingProduct.title}»ni xarid qilish uchun hisobingizga kiring yoki ro'yxatdan o'ting.`

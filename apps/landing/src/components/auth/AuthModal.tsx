@@ -439,6 +439,19 @@ function AuthDialog({
         {error && (
           <p role="alert" className="mt-4 text-sm text-red-600">
             {error}
+            {/* Ro'yxatdan o'tishda email band bo'lsa — shu emailni saqlagan holda kirishga o'tkazamiz. */}
+            {view === 'register' && /email allaqachon ro'yxatdan o'tgan/i.test(error) && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => switchView('login')}
+                  className="font-semibold text-primary underline-offset-2 hover:underline"
+                >
+                  Kirish
+                </button>
+              </>
+            )}
           </p>
         )}
         {info && !error && (

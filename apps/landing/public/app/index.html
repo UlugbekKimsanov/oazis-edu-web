@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OAZIS ilovasini yuklab olish</title>
+  <meta name="description" content="OAZIS mobil ilovasini Google Play yoki App Store'dan yuklab oling." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script>
+    // QR kod shu sahifaga olib keladi: qurilmaga mos do'konga yo'naltiramiz.
+    // Havolalar src/lib/appLinks.ts dagi PLAY_STORE_URL / APP_STORE_URL bilan bir xil bo'lishi kerak.
+    // iOS ilova chiqqanda APP_STORE_URL ni to'ldiring — QR kodni o'zgartirish shart emas.
+    var PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=oazis.edu';
+    var APP_STORE_URL = '';
+
+    var ua = navigator.userAgent || '';
+    var isAndroid = /android/i.test(ua);
+    var isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+
+    if (isAndroid) {
+      location.replace(PLAY_STORE_URL);
+    } else if (isIos && APP_STORE_URL) {
+      location.replace(APP_STORE_URL);
+    }
+  </script>
+  <style>
+    :root { --primary: #2e9e6e; --primary-dark: #217a54; --text: #1a2b23; --muted: #5d6f66; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px; color: var(--text);
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      font: 16px/1.5 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .card {
+      width: 100%; max-width: 380px; background: #fff; border-radius: 24px; padding: 28px 24px;
+      text-align: center; box-shadow: 0 20px 50px rgba(0, 0, 0, .2);
+    }
+    .brand { font-size: 26px; font-weight: 800; color: var(--primary); letter-spacing: -.5px; }
+    h1 { font-size: 20px; margin: 12px 0 6px; }
+    p { margin: 0; color: var(--muted); font-size: 15px; }
+    .badges { display: grid; gap: 12px; margin-top: 22px; }
+    .badge {
+      display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 16px;
+      background: #111827; color: #fff; text-decoration: none; text-align: left; border: 0;
+      font: inherit; cursor: pointer; width: 100%;
+    }
+    .badge:hover { background: #000; }
+    .badge svg { width: 28px; height: 28px; flex-shrink: 0; }
+    .badge small { display: block; font-size: 11px; color: rgba(255, 255, 255, .7); }
+    .badge b { display: block; font-size: 16px; }
+    .soon {
+      margin-top: 14px; padding: 10px 14px; border-radius: 12px; background: #fffbeb;
+      color: #92400e; font-size: 14px; font-weight: 500;
+    }
+    .back { display: inline-block; margin-top: 20px; color: var(--primary); font-weight: 600; text-decoration: none; font-size: 14px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">OAZIS</div>
+    <h1>Ilovani yuklab oling</h1>
+    <p>Darslar, mashqlar va testlar OAZIS mobil ilovasida.</p>
+
+    <div class="badges">
+      <a class="badge" id="play">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#00C3FF" d="M3.2 1.6v20.8L13.4 12 3.2 1.6z" />
+          <path fill="#00F076" d="M3.2 1.6 13.4 12l3.3-3.4L4.5 1.5c-.5-.3-1-.2-1.3.1z" />
+          <path fill="#FFD500" d="M16.7 8.6 13.4 12l3.3 3.4 4.2-2.4c.9-.5.9-1.5 0-2l-4.2-2.4z" />
+          <path fill="#FF3A44" d="M3.2 22.4c.3.3.8.4 1.3.1l12.2-7.1-3.3-3.4L3.2 22.4z" />
+        </svg>
+        <span><small>Yuklab oling</small><b>Google Play</b></span>
+      </a>
+      <a class="badge" id="appstore" role="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+          <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+        </svg>
+        <span><small>Yuklab oling</small><b>App Store</b></span>
+      </a>
+    </div>
+
+    <div class="soon" id="soon" role="status" hidden>Ilova tez kunda App Store'da chiqadi.</div>
+
+    <a class="back" href="/">← oazisedu.uz saytiga o'tish</a>
+  </main>
+
+  <script>
+    document.getElementById('play').href = PLAY_STORE_URL;
+    var appStore = document.getElementById('appstore');
+    var soon = document.getElementById('soon');
+    if (APP_STORE_URL) {
+      appStore.href = APP_STORE_URL;
+    } else {
+      appStore.addEventListener('click', function () { soon.hidden = false; });
+      // iPhone'dan kelgan, lekin ilova hali App Store'da yo'q — xabarni darrov ko'rsatamiz.
+      if (isIos) soon.hidden = false;
+    }
+  </script>
+</body>
+</html>

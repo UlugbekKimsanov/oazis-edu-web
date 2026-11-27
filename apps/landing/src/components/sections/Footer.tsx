@@ -1,6 +1,7 @@
 import { Send, Instagram, Youtube, Phone } from 'lucide-react';
 import type { Contacts, LandingContent } from '../../data/landing';
 import { Container } from '../ui/Container';
+import { StoreBadges } from '../app/StoreBadges';
 
 export function Footer({
   logo,
@@ -49,6 +50,8 @@ export function Footer({
               <Phone className="h-5 w-5" />
               {contacts.phone}
             </a>
+            <p className="mt-6 text-sm font-semibold text-white/70">Ilovani yuklab oling</p>
+            <StoreBadges className="mt-3 sm:ml-auto sm:max-w-sm" soonTone="light" />
           </div>
         </div>
 

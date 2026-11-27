@@ -178,6 +178,19 @@ export async function loginWithGoogle(idToken: string): Promise<AuthUser> {
  * Kirgan foydalanuvchini bepul kursga yozadi (mobil ilovadagi "Boshlash" bilan bir xil
  * `POST /api/v1/courses/{id}/enroll`) — kurs ilovada "Mening kurslarim"da tayyor turadi.
  */
+/**
+ * Mobil ilovadan `?t=<token>` bilan kelgan foydalanuvchiga saytda login sessiyasi
+ * ochadi (har token bilan faqat bir marta). Javob — oddiy login javobi.
+ */
+export async function exchangeCheckoutSession(checkoutToken: string): Promise<AuthUser> {
+  const res = await axios.post(
+    `${API_BASE}/api/landing/checkout/${encodeURIComponent(checkoutToken)}/session`,
+    null,
+    { timeout: 15000 },
+  );
+  return toAuthUser(res.data);
+}
+
 export async function enrollFreeCourse(authToken: string, courseId: number): Promise<void> {
   await client.post(`/courses/${courseId}/enroll`, null, {
     headers: { Authorization: `Bearer ${authToken}` },
