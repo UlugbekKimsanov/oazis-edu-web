@@ -16,7 +16,7 @@ import api, { fileUrl } from '../../lib/api';
 import { apiErrorMessage } from '../../lib/errors';
 import { parseYoutubeId, youtubeUrl } from '../../lib/youtube';
 import { toast, confirmDialog, type ConfirmOptions } from '../../stores/ui-store';
-import type { Course, Language, Lesson, Vocabulary, Question, Exercise, Audiobook } from '../../lib/types';
+import type { Course, Language, Lesson, Vocabulary, Question, Exercise, Audiobook, VideoLowStatus } from '../../lib/types';
 
 /** URL'da eslab qolinadigan parametrlar (yon menyudan qaytganda tiklanadi) */
 const LESSONS_PARAMS = ['courseId'] as const;
@@ -421,6 +421,29 @@ export default function LessonsPage() {
       active = false;
     };
   }, [selectedCourse, lessonsTick]);
+
+  // Ochilgan darsning tejamkor versiyasi tayyorlanayotgan bo'lsa — har 10 s da jim yangilanadi.
+  // Holat o'zgarsa (READY/SKIPPED/FAILED), dars yopilsa yoki kurs almashsa interval to'xtaydi.
+  const detailLowPendingId = detailLesson && !detailLesson.youtubeId && detailLesson.videoUrl
+    && isLowPending(detailLesson.videoLowStatus) ? detailLesson.id : 0;
+  useEffect(() => {
+    if (!detailLowPendingId || !selectedCourse) return;
+    const courseId = selectedCourse;
+    let active = true;
+    const id = window.setInterval(() => {
+      api.get(`/admin/courses/${courseId}/lessons`)
+        .then((res) => {
+          if (!active || selectedCourseRef.current !== courseId) return;
+          setLessonsRaw(res.data.data ?? res.data ?? []);
+          setLessonsCourseId(courseId);
+        })
+        .catch(() => {}); // Vaqtinchalik tarmoq xatosi — keyingi urinishda qayta so'raladi
+    }, 10_000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, [detailLowPendingId, selectedCourse]);
 
   const retryCourses = () => {
     setCoursesLoading(true);
@@ -1164,8 +1187,7 @@ export default function LessonsPage() {
                   src={`https://www.youtube.com/embed/${detailYoutubeId}`} title={detailLesson.name}
                   allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowFullScreen />
               ) : detailLesson.videoUrl ? (
-                <video key={detailLesson.id} controls autoPlay className="w-full rounded-xl bg-black aspect-video"
-                  src={fileUrl(detailLesson.videoUrl)} poster={fileUrl(detailLesson.coverImage)} />
+                <LessonVideoPreview key={detailLesson.id} lesson={detailLesson} onChanged={refreshLessons} />
               ) : (
                 <div className="w-full aspect-video rounded-xl bg-gray-100 flex flex-col items-center justify-center text-gray-400">
                   <PlayCircle size={40} className="mb-2" />
@@ -1457,6 +1479,8 @@ export default function LessonsPage() {
               <p className="text-xs text-gray-400 mt-1">
                 MP4 va boshqa video formatlar · maksimal 2 GB. Saqlanganda yuklanadi
                 {pendingVideo && form.videoUrl ? ' va avvalgi video o\'rnini bosadi' : ''}.
+                <br />
+                Yuklangandan so'ng serverda tejamkor (sekin internet uchun) versiya avtomatik tayyorlanadi.
               </p>
             )}
           </div>
@@ -1901,6 +1925,16 @@ function SortableLessonCard({
                 <SquarePlay size={10} /> <span className="hidden sm:inline">YouTube</span>
               </span>
             )}
+            {!lesson.youtubeId && lesson.videoUrl && (isLowPending(lesson.videoLowStatus) || lesson.videoLowStatus === 'FAILED') && (
+              <span
+                title={lesson.videoLowStatus === 'FAILED'
+                  ? `Tejamkor versiyani tayyorlashda xatolik${lesson.videoLowError ? `: ${lesson.videoLowError}` : ''}`
+                  : 'Tejamkor versiya tayyorlanmoqda'}
+                className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${lesson.videoLowStatus === 'FAILED' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'}`}
+              >
+                {lesson.videoLowStatus === 'FAILED' ? 'Xatolik' : 'Tayyorlanmoqda'}
+              </span>
+            )}
           </div>
           {lesson.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1" title={lesson.description}>{lesson.description}</p>}
         </div>
@@ -1927,6 +1961,103 @@ function SortableLessonCard({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Tejamkor (sekin internet uchun) video versiyasi ─────────────
+/** Holat matni va badge rangi (boshqa sahifalardagi badge uslubida) */
+const LOW_STATUS_META: Record<VideoLowStatus, { label: string; cls: string }> = {
+  PENDING: { label: 'Navbatda', cls: 'bg-gray-100 text-gray-600' },
+  PROCESSING: { label: 'Tayyorlanmoqda…', cls: 'bg-amber-100 text-amber-700' },
+  READY: { label: 'Tayyor', cls: 'bg-green-100 text-green-700' },
+  SKIPPED: { label: 'Kerak emas (original yetarlicha yengil)', cls: 'bg-blue-100 text-blue-700' },
+  FAILED: { label: 'Xatolik', cls: 'bg-red-100 text-red-700' },
+};
+
+/** Tejamkor versiya hali tayyorlanayotgan holatlar (ular uchun polling ishlaydi) */
+const isLowPending = (s?: VideoLowStatus | null) => s === 'PENDING' || s === 'PROCESSING';
+
+/**
+ * Yuklangan video pleyeri + tejamkor versiya holati.
+ * READY bo'lsa «Original / Tejamkor» almashtirgichi — almashtirganda joriy vaqt saqlanadi.
+ * Dars o'zgarganda holat tozalanishi uchun chaqiruvchi `key={lesson.id}` beradi.
+ */
+function LessonVideoPreview({ lesson, onChanged }: { lesson: Lesson; onChanged: () => Promise<void> | void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [variant, setVariant] = useState<'original' | 'low'>('original');
+  const [reprocessing, setReprocessing] = useState(false);
+  // Almashtirishdan oldingi vaqt va holat — yangi manba yuklangach tiklanadi
+  const pendingSeek = useRef<{ time: number; play: boolean } | null>(null);
+
+  const status = lesson.videoLowStatus ?? null;
+  const lowAvailable = status === 'READY' && !!lesson.videoUrlLow;
+  const active = variant === 'low' && lowAvailable ? 'low' : 'original';
+  const src = fileUrl(active === 'low' ? lesson.videoUrlLow ?? undefined : lesson.videoUrl);
+
+  const switchTo = (next: 'original' | 'low') => {
+    if (next === active) return;
+    const v = videoRef.current;
+    pendingSeek.current = v ? { time: v.currentTime, play: !v.paused } : null;
+    setVariant(next);
+  };
+
+  const onLoadedMetadata = () => {
+    const v = videoRef.current;
+    const seek = pendingSeek.current;
+    if (!v || !seek) return;
+    pendingSeek.current = null;
+    if (seek.time > 0 && Number.isFinite(v.duration)) v.currentTime = Math.min(seek.time, v.duration);
+    if (seek.play) void v.play().catch(() => {});
+  };
+
+  const reprocess = async () => {
+    if (reprocessing) return;
+    setReprocessing(true);
+    try {
+      await api.post(`/admin/lessons/${lesson.id}/reprocess-video`);
+      toast.success('Tejamkor versiya qayta tayyorlash navbatiga qo\'yildi');
+      await onChanged();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Qayta tayyorlashni boshlab bo'lmadi. Qayta urinib ko'ring."));
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
+  const meta = status ? LOW_STATUS_META[status] : null;
+  const segBtn = (on: boolean) =>
+    `px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${on ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+
+  return (
+    <div className="space-y-2">
+      <video key={lesson.id} ref={videoRef} controls autoPlay className="w-full rounded-xl bg-black aspect-video"
+        src={src} poster={fileUrl(lesson.coverImage)} onLoadedMetadata={onLoadedMetadata} />
+      {meta && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-gray-500">Tejamkor versiya:</span>
+          <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${meta.cls}`}>{meta.label}</span>
+          {status === 'FAILED' && lesson.videoLowError && (
+            <span className="min-w-0 max-w-xs truncate text-red-600" title={lesson.videoLowError}>{lesson.videoLowError}</span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {lowAvailable && (
+              <div className="inline-flex rounded-lg bg-gray-100 p-0.5" role="group" aria-label="Video versiyasi">
+                <button type="button" className={segBtn(active === 'original')} aria-pressed={active === 'original'}
+                  onClick={() => switchTo('original')}>Original</button>
+                <button type="button" className={segBtn(active === 'low')} aria-pressed={active === 'low'}
+                  onClick={() => switchTo('low')}>Tejamkor</button>
+              </div>
+            )}
+            {(status === 'FAILED' || status === 'READY' || status === 'SKIPPED') && (
+              <Button size="sm" variant={status === 'FAILED' ? 'primary' : 'secondary'} loading={reprocessing}
+                onClick={reprocess} title="Tejamkor versiyani serverda qaytadan tayyorlash">
+                Qayta tayyorlash
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

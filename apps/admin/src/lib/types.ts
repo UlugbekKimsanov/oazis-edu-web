@@ -84,7 +84,14 @@ export interface Lesson {
   videoUrl?: string;
   coverImage?: string;
   youtubeId?: string; // YouTube unlisted video ID (kiritilsa, mobil ilova YouTube pleyerda ko'rsatadi)
+  /** Tejamkor (sekin internet uchun) versiya — videoUrl kabi nisbiy yo'l. */
+  videoUrlLow?: string | null;
+  /** Tejamkor versiyani tayyorlash holati (server fonda transkod qiladi). */
+  videoLowStatus?: VideoLowStatus | null;
+  videoLowError?: string | null;
 }
+
+export type VideoLowStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'SKIPPED' | 'FAILED';
 
 export interface Vocabulary {
   id: number;
